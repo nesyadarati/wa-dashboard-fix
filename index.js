@@ -534,7 +534,8 @@ async function sendMainMenuTelegram() {
                     [{ text: "📊 Stats" }, { text: "🟢 Status" }, { text: "📋 Health" }],
                     [{ text: "📈 7D Chart" }, { text: "🚨 Logs Error" }, { text: "📊 Summary" }],
                     [{ text: "🛠 Services" }, { text: "🔌 Reconnect" }, { text: "🎨 QR Code" }],
-                    [{ text: "🚫 Blacklist" }, { text: "🗑 Anti-Delete" }, { text: "🔍 Menu" }]
+                    [{ text: "🚫 Blacklist" }, { text: "🗑 Anti-Delete" }, { text: "🔍 Menu" }],
+                    [{ text: "📝 Rangkum Chat" }]
                 ],
                 resize_keyboard: true,
                 one_time_keyboard: false
@@ -561,6 +562,7 @@ async function sendInlineMenu(chatId) {
         menuText += "🎨 *QR Code* — Cek ketersediaan QR login" + NL;
         menuText += "🚫 *Blacklist* — Lihat/kelola grup yang diabaikan" + NL;
         menuText += "🗑 *Anti-Delete* — Lihat pesan yang ditarik" + NL;
+        menuText += "📝 *Rangkum Chat* — Rangkum isi chat grup pakai AI" + NL;
         menuText += NL + "━━━━━━━━━━━━━━━━━━━━";
 
         await axios.post("https://api.telegram.org/bot" + process.env.BOT_TOKEN + "/sendMessage", {
@@ -619,6 +621,9 @@ async function handleCommand(text, chatId) {
     if (text === "🚫 Blacklist") text = "/blacklist";
     if (text === "🗑 Anti-Delete") text = "/antidelete";
     if (text === "🔍 Menu") text = "/menu";
+    if (text === "📝 Rangkum Chat") {
+        return replyTelegram(chatId, "📝 *Cara Rangkum Chat:*" + String.fromCharCode(10) + String.fromCharCode(10) + "Ketik: `/rangkum NamaGrup`" + String.fromCharCode(10) + "Contoh: `/rangkum Podomoro Park Bandung`" + String.fromCharCode(10) + String.fromCharCode(10) + "Untuk tanggal tertentu:" + String.fromCharCode(10) + "`/rangkum Podomoro Park Bandung 2026-07-05`" + String.fromCharCode(10) + String.fromCharCode(10) + "Tanpa tanggal = rangkum hari ini.");
+    }
 
     if (text === "/start" || text === "/menu") {
         return sendInlineMenu(chatId);
@@ -832,6 +837,137 @@ async function handleCommand(text, chatId) {
         msg += "━━━━━━━━━━━━━━━━━━━━";
         return replyTelegram(chatId, msg);
     }
+
+    // RANGKUMAN CHAT DENGAN GEMINI AI
+    if (text.startsWith("/rangkum ")) {
+        var parts = text.replace("/rangkum ", "").trim().split(" ");
+        var targetDate = null;
+
+        // Cek apakah bagian terakhir adalah tanggal (format YYYY-MM-DD)
+        if (parts.length > 1 && /^\d{4}-\d{2}-\d{2}$/.test(parts[parts.length - 1])) {
+            targetDate = parts.pop();
+        }
+        var groupName = parts.join(" ");
+
+        if (!groupName) return replyTelegram(chatId, "Format: `/rangkum NamaGrup` atau `/rangkum NamaGrup 2026-07-05`");
+
+        if (!targetDate) targetDate = moment().format("YYYY-MM-DD");
+
+        await replyTelegram(chatId, "🤖 Memproses rangkuman chat *" + groupName + "* tanggal " + targetDate + "...");
+
+        try {
+            var summary = await generateChatSummary(groupName, targetDate);
+            await replyTelegram(chatId, summary);
+        } catch (err) {
+            await replyTelegram(chatId, "❌ Gagal merangkum: " + err.message);
+        }
+        return;
+    }
+}
+
+
+// ==========================================
+// GEMINI AI - RANGKUMAN CHAT
+// ==========================================
+
+async function generateChatSummary(groupName, targetDate) {
+    var NL = String.fromCharCode(10);
+    var GEMINI_KEY = process.env.GEMINI_API_KEY;
+
+    if (!GEMINI_KEY) {
+        throw new Error("GEMINI_API_KEY belum diset di .env");
+    }
+
+    // Baca chat history
+    var logFile = path.join(__dirname, "WA-MEDIA", groupName, "chat_history.jsonl");
+    if (!fs.existsSync(logFile)) {
+        throw new Error("Belum ada riwayat chat untuk grup: " + groupName);
+    }
+
+    var fileContent = fs.readFileSync(logFile, "utf8");
+    var allLines = fileContent.trim().split(String.fromCharCode(10)).filter(Boolean);
+
+    // Filter chat berdasarkan tanggal
+    var chats = [];
+    allLines.forEach(function(line) {
+        try {
+            var chat = JSON.parse(line);
+            if (chat.time && chat.time.startsWith(targetDate)) {
+                chats.push(chat);
+            }
+        } catch (e) {}
+    });
+
+    if (chats.length === 0) {
+        throw new Error("Tidak ada chat pada tanggal " + targetDate + " di grup " + groupName);
+    }
+
+    // Format chat untuk dikirim ke Gemini
+    var chatText = chats.map(function(c) {
+        return "[" + c.time + "] " + c.sender + ": " + c.message;
+    }).join(String.fromCharCode(10));
+
+    // Batasi panjang (Gemini ada limit token)
+    if (chatText.length > 15000) {
+        chatText = chatText.substring(chatText.length - 15000);
+    }
+
+    // Prompt untuk Gemini
+    var prompt = "Kamu adalah asisten yang merangkum percakapan grup WhatsApp. Berikut adalah log chat grup '" + groupName + "' pada tanggal " + targetDate + "." + String.fromCharCode(10) + String.fromCharCode(10);
+    prompt += "Buatkan rangkuman dalam Bahasa Indonesia dengan format:" + String.fromCharCode(10);
+    prompt += "1. TOPIK UTAMA - apa saja yang dibahas" + String.fromCharCode(10);
+    prompt += "2. RENCANA & TARGET - jika ada rencana/target yang disepakati" + String.fromCharCode(10);
+    prompt += "3. KEPUTUSAN - keputusan yang diambil" + String.fromCharCode(10);
+    prompt += "4. HIGHLIGHT - hal penting/menarik" + String.fromCharCode(10);
+    prompt += "5. KESIMPULAN - rangkuman singkat 1-2 kalimat" + String.fromCharCode(10) + String.fromCharCode(10);
+    prompt += "Jika salah satu bagian tidak ada, skip saja. Tulis ringkas dan padat." + String.fromCharCode(10) + String.fromCharCode(10);
+    prompt += "--- LOG CHAT ---" + String.fromCharCode(10);
+    prompt += chatText;
+
+    // Panggil Gemini API
+    var geminiUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=" + GEMINI_KEY;
+
+    var response = await axios.post(geminiUrl, {
+        contents: [{
+            parts: [{ text: prompt }]
+        }]
+    }, {
+        headers: { "Content-Type": "application/json" },
+        timeout: 30000
+    });
+
+    var result = response.data;
+    var aiText = "";
+
+    if (result.candidates && result.candidates[0] && result.candidates[0].content) {
+        aiText = result.candidates[0].content.parts[0].text || "";
+    }
+
+    if (!aiText) {
+        throw new Error("Gemini tidak mengembalikan hasil.");
+    }
+
+    // Format output
+    var output = "";
+    output += "━━━━━━━━━━━━━━━━━━━━" + NL;
+    output += "🤖 *RANGKUMAN CHAT AI*" + NL;
+    output += "━━━━━━━━━━━━━━━━━━━━" + NL + NL;
+    output += "👥 *Grup:* " + groupName + NL;
+    output += "📅 *Tanggal:* " + targetDate + NL;
+    output += "💬 *Total Pesan:* " + chats.length + NL;
+    output += "👤 *Partisipan:* " + getUniqueCount(chats) + " orang" + NL + NL;
+    output += "━━━━━━━━━━━━━━━━━━━━" + NL + NL;
+    output += aiText + NL + NL;
+    output += "━━━━━━━━━━━━━━━━━━━━" + NL;
+    output += "_Powered by Gemini AI_";
+
+    return output;
+}
+
+function getUniqueCount(chats) {
+    var senders = {};
+    chats.forEach(function(c) { senders[c.sender] = true; });
+    return Object.keys(senders).length;
 }
 
 
