@@ -994,27 +994,7 @@ async function generateChatSummary(groupName, targetDate) {
     prompt += chatText;
 
     // Panggil Gemini API
-    var geminiUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=" + GEMINI_KEY;
-
-    var response = await axios.post(geminiUrl, {
-        contents: [{
-            parts: [{ text: prompt }]
-        }]
-    }, {
-        headers: { "Content-Type": "application/json" },
-        timeout: 30000
-    });
-
-    var result = response.data;
-    var aiText = "";
-
-    if (result.candidates && result.candidates[0] && result.candidates[0].content) {
-        aiText = result.candidates[0].content.parts[0].text || "";
-    }
-
-    if (!aiText) {
-        throw new Error("Gemini tidak mengembalikan hasil.");
-    }
+    var aiText = await callGemini(prompt);
 
     // Format output
     var output = "";
@@ -1109,15 +1089,7 @@ async function generateReport(groupName, startDate, endDate) {
     prompt += "--- CHAT ---" + NL + chatText;
 
     // Panggil Gemini
-    var geminiUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=" + GEMINI_KEY;
-    var aiResponse = await axios.post(geminiUrl, {
-        contents: [{ parts: [{ text: prompt }] }]
-    }, { headers: { "Content-Type": "application/json" }, timeout: 30000 });
-
-    var aiText = "";
-    if (aiResponse.data.candidates && aiResponse.data.candidates[0] && aiResponse.data.candidates[0].content) {
-        aiText = aiResponse.data.candidates[0].content.parts[0].text || "";
-    }
+    var aiText = await callGemini(prompt);
     if (!aiText) throw new Error("Tidak ada hasil dari AI");
 
     // Format output
@@ -1137,6 +1109,47 @@ async function generateReport(groupName, startDate, endDate) {
     output += "━━━━━━━━━━━━━━━━━━━━";
 
     return output;
+}
+
+
+// ==========================================
+// GEMINI API HELPER (with retry for rate limit)
+// ==========================================
+
+async function callGemini(prompt) {
+    var GEMINI_KEY = process.env.GEMINI_API_KEY;
+    if (!GEMINI_KEY) throw new Error("GEMINI_API_KEY belum diset di .env");
+
+    var geminiUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=" + GEMINI_KEY;
+    var maxRetries = 3;
+    var retryDelay = 5000; // 5 detik
+
+    for (var attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            var response = await axios.post(geminiUrl, {
+                contents: [{ parts: [{ text: prompt }] }]
+            }, { headers: { "Content-Type": "application/json" }, timeout: 60000 });
+
+            var aiText = "";
+            if (response.data.candidates && response.data.candidates[0] && response.data.candidates[0].content) {
+                aiText = response.data.candidates[0].content.parts[0].text || "";
+            }
+            if (!aiText) throw new Error("Gemini tidak mengembalikan hasil.");
+            return aiText;
+
+        } catch (err) {
+            var statusCode = err.response ? err.response.status : 0;
+            if (statusCode === 429 && attempt < maxRetries) {
+                // Rate limited - tunggu lalu coba lagi
+                console.log("Gemini rate limited, retry " + attempt + "/" + maxRetries + " in " + (retryDelay/1000) + "s...");
+                await new Promise(function(resolve) { setTimeout(resolve, retryDelay); });
+                retryDelay = retryDelay * 2; // exponential backoff
+            } else {
+                throw new Error("Gemini API error: " + (err.response ? "status " + statusCode : err.message));
+            }
+        }
+    }
+    throw new Error("Gemini API gagal setelah " + maxRetries + " percobaan (rate limited).");
 }
 
 
@@ -1258,15 +1271,7 @@ async function askAIAssistant(question) {
     prompt += question;
 
     // Panggil Gemini
-    var geminiUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=" + GEMINI_KEY;
-    var aiResponse = await axios.post(geminiUrl, {
-        contents: [{ parts: [{ text: prompt }] }]
-    }, { headers: { "Content-Type": "application/json" }, timeout: 30000 });
-
-    var aiText = "";
-    if (aiResponse.data.candidates && aiResponse.data.candidates[0] && aiResponse.data.candidates[0].content) {
-        aiText = aiResponse.data.candidates[0].content.parts[0].text || "";
-    }
+    var aiText = await callGemini(prompt);
     if (!aiText) throw new Error("AI tidak merespon");
 
     // Format output
