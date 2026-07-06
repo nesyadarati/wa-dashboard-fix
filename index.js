@@ -23,6 +23,9 @@ const IGNORED_FILE = path.join(__dirname, "ignored-groups.json");
 let sock;
 global.muteTelegramAlertsUntil = null;
 
+// GEMINI API TRACKER
+var geminiTracker = { success: 0, failed: 0, lastStatus: "unknown", lastUsed: null, lastModel: null, lastError: null };
+
 
 // ==========================================
 // HELPER FUNCTIONS
@@ -705,11 +708,11 @@ async function sendMainMenuTelegram() {
             parse_mode: "Markdown",
             reply_markup: {
                 keyboard: [
-                    [{ text: "📊 Stats" }, { text: "🟢 Status" }, { text: "📋 Health" }],
+                    [{ text: "📊 Overview" }, { text: "🛠 Sistem" }, { text: "📅 Hari Ini" }],
                     [{ text: "📈 7D Chart" }, { text: "🚨 Logs Error" }, { text: "📊 Summary" }],
-                    [{ text: "🛠 Services" }, { text: "🔌 Reconnect" }, { text: "🎨 QR Code" }],
-                    [{ text: "🚫 Blacklist" }, { text: "🗑 Anti-Delete" }, { text: "🔍 Menu" }],
-                    [{ text: "📝 Rangkum Chat" }, { text: "📋 Report" }, { text: "🧠 Tanya AI" }]
+                    [{ text: "🔌 Reconnect" }, { text: "🚫 Blacklist" }, { text: "🗑 Anti-Delete" }],
+                    [{ text: "📝 Rangkum Chat" }, { text: "📋 Report" }, { text: "🧠 Tanya AI" }],
+                    [{ text: "🔍 Menu" }]
                 ],
                 resize_keyboard: true,
                 one_time_keyboard: false
@@ -725,11 +728,10 @@ async function sendInlineMenu(chatId) {
         menuText += "📱 *WA MEDIA BOT - MENU*" + NL;
         menuText += "━━━━━━━━━━━━━━━━━━━━" + NL + NL;
         menuText += "Pilih fitur yang ingin diakses:" + NL + NL;
-        menuText += "📊 *Stats* — Lihat statistik total media tersimpan" + NL;
-        menuText += "🟢 *Status* — Cek status koneksi WA & uptime" + NL;
+        menuText += "📊 *Overview* — Status WA + statistik + top grup hari ini" + NL;
+        menuText += "🛠 *Sistem* — RAM, uptime, PM2, Gemini API status" + NL;
+        menuText += "📅 *Hari Ini* — Detail aktivitas hari ini (grup + pengirim)" + NL;
         menuText += "📈 *7D Chart* — Grafik aktivitas 7 hari terakhir" + NL;
-        menuText += "📋 *Health* — Cek kesehatan sistem (RAM, uptime)" + NL;
-        menuText += "🛠 *Services* — Status semua service PM2" + NL;
         menuText += "🚨 *Logs Error* — Lihat 5 error terakhir" + NL;
         menuText += "📊 *Summary* — Kirim laporan harian sekarang" + NL;
         menuText += "🔌 *Reconnect* — Putuskan & sambung ulang WA" + NL;
@@ -786,13 +788,12 @@ async function handleCommand(text, chatId) {
     var NL = String.fromCharCode(10);
 
     // Map reply keyboard button texts to commands
-    if (text === "📊 Stats") text = "/stats";
-    if (text === "🟢 Status") text = "/status";
-    if (text === "📋 Health") text = "/health";
+    if (text === "📊 Overview" || text === "📊 Stats" || text === "🟢 Status") text = "/overview";
+    if (text === "🛠 Sistem" || text === "📋 Health" || text === "🛠 Services") text = "/sistem";
+    if (text === "📅 Hari Ini") text = "/today";
     if (text === "📈 7D Chart") text = "/chart";
     if (text === "🚨 Logs Error") text = "/viewlogs";
     if (text === "📊 Summary") text = "/summary_now";
-    if (text === "🛠 Services") text = "/services";
     if (text === "🔌 Reconnect") text = "/reconnect";
     if (text === "🎨 QR Code") text = "/getqr";
     if (text === "🚫 Blacklist") text = "/blacklist";
@@ -814,31 +815,71 @@ async function handleCommand(text, chatId) {
         return sendInlineMenu(chatId);
     }
 
-    if (text === "/status") {
+    if (text === "/overview" || text === "/stats" || text === "/status") {
         let stats = loadStats();
         let status = { connected: false }; try { status = fs.readJsonSync(STATUS_FILE); } catch {}
+        let db = []; try { db = fs.readJsonSync(MEDIA_DB_FILE); } catch {}
+        var todayStr = moment().format("YYYY-MM-DD");
+        var todayMedia = db.filter(function(x) { return x.time && x.time.startsWith(todayStr); });
+        var todayImages = todayMedia.filter(function(x){return x.type==="images";}).length;
+        var todayVideos = todayMedia.filter(function(x){return x.type==="videos";}).length;
+        var todayDocs = todayMedia.filter(function(x){return x.type==="documents";}).length;
+
+        // Top 3 grup hari ini
+        var grupToday = {};
+        todayMedia.forEach(function(x) { grupToday[x.group] = (grupToday[x.group] || 0) + 1; });
+        var topGrups = Object.entries(grupToday).sort(function(a,b){return b[1]-a[1];}).slice(0,3);
+
+        // Uptime
+        var uptimeSec = process.uptime();
+        var uptimeDays = Math.floor(uptimeSec / 86400);
+        var uptimeHours = Math.floor((uptimeSec % 86400) / 3600);
+
         let msg = "━━━━━━━━━━━━━━━━━━━━" + NL;
-        msg += (status.connected ? "🟢" : "🔴") + " *STATUS: " + (status.connected ? "ONLINE" : "OFFLINE") + "*" + NL;
+        msg += "📊 *OVERVIEW*" + NL;
         msg += "━━━━━━━━━━━━━━━━━━━━" + NL + NL;
-        msg += "📥 Saved : " + stats.saved + NL;
-        msg += "❌ Failed : " + stats.failed + NL;
-        msg += "⏱ Updated : " + (status.updated || "-") + NL;
+        msg += (status.connected ? "🟢" : "🔴") + " WhatsApp: *" + (status.connected ? "ONLINE" : "OFFLINE") + "*" + NL;
+        msg += "⏱ Uptime: " + uptimeDays + "d " + uptimeHours + "h" + NL;
+        msg += "💾 Saved: *" + stats.saved + "* | Failed: *" + stats.failed + "*" + NL + NL;
+        msg += "📥 *Hari Ini (" + todayStr + "):*" + NL;
+        msg += "   📷 " + todayImages + " gambar | 🎬 " + todayVideos + " video | 📎 " + todayDocs + " dok" + NL + NL;
+        msg += "📦 *Total Keseluruhan:*" + NL;
+        msg += "   🖼 " + db.filter(function(x){return x.type==="images";}).length + " | 🎬 " + db.filter(function(x){return x.type==="videos";}).length + " | 📎 " + db.filter(function(x){return x.type==="documents";}).length + " | 📦 " + db.length + NL;
+        if (topGrups.length > 0) {
+            msg += NL + "🏆 *Top Grup Hari Ini:*" + NL;
+            topGrups.forEach(function(g, i) { msg += "   " + ["🥇","🥈","🥉"][i] + " " + g[0] + " (" + g[1] + ")" + NL; });
+        }
         msg += "━━━━━━━━━━━━━━━━━━━━";
         return replyTelegram(chatId, msg);
     }
 
-    if (text === "/stats") {
-        let stats = loadStats(); let db = []; try { db = fs.readJsonSync(MEDIA_DB_FILE); } catch {}
+    if (text === "/today") {
+        let db = []; try { db = fs.readJsonSync(MEDIA_DB_FILE); } catch {}
+        var todayStr = moment().format("YYYY-MM-DD");
+        var todayMedia = db.filter(function(x) { return x.time && x.time.startsWith(todayStr); });
+        var senderCount = {};
+        todayMedia.forEach(function(x) { senderCount[x.sender || "Unknown"] = (senderCount[x.sender || "Unknown"] || 0) + 1; });
+        var topSenders = Object.entries(senderCount).sort(function(a,b){return b[1]-a[1];}).slice(0,5);
+        var grupCount = {};
+        todayMedia.forEach(function(x) { grupCount[x.group] = (grupCount[x.group] || 0) + 1; });
+        var topGrups = Object.entries(grupCount).sort(function(a,b){return b[1]-a[1];}).slice(0,5);
+
         let msg = "━━━━━━━━━━━━━━━━━━━━" + NL;
-        msg += "📊 *STATISTIK DATA*" + NL;
+        msg += "📅 *HARI INI (" + todayStr + ")*" + NL;
         msg += "━━━━━━━━━━━━━━━━━━━━" + NL + NL;
-        msg += "🖼 Images : " + db.filter(function(x){return x.type==="images";}).length + NL;
-        msg += "🎬 Videos : " + db.filter(function(x){return x.type==="videos";}).length + NL;
-        msg += "📎 Documents : " + db.filter(function(x){return x.type==="documents";}).length + NL;
-        msg += "📦 Total : " + db.length + NL;
-        msg += NL + "────────────" + NL;
-        msg += "📥 Saved : " + stats.saved + NL;
-        msg += "❌ Failed : " + stats.failed + NL;
+        msg += "📷 " + todayMedia.filter(function(x){return x.type==="images";}).length + " gambar" + NL;
+        msg += "🎬 " + todayMedia.filter(function(x){return x.type==="videos";}).length + " video" + NL;
+        msg += "📎 " + todayMedia.filter(function(x){return x.type==="documents";}).length + " dokumen" + NL;
+        msg += "📦 Total: *" + todayMedia.length + "* file" + NL + NL;
+        if (topGrups.length > 0) {
+            msg += "*Grup Aktif:*" + NL;
+            topGrups.forEach(function(g) { msg += "• " + g[0] + " (" + g[1] + ")" + NL; });
+            msg += NL;
+        }
+        if (topSenders.length > 0) {
+            msg += "*Pengirim Aktif:*" + NL;
+            topSenders.forEach(function(s) { msg += "• " + s[0] + " (" + s[1] + ")" + NL; });
+        }
         msg += "━━━━━━━━━━━━━━━━━━━━";
         return replyTelegram(chatId, msg);
     }
@@ -883,49 +924,57 @@ async function handleCommand(text, chatId) {
         } catch (err) { return replyTelegram(chatId, "❌ Gagal: " + err.message); }
     }
 
-    if (text === "/health") {
+    if (text === "/sistem" || text === "/health" || text === "/services") {
         const stats = loadStats();
         const ram = (process.memoryUsage().rss / 1024 / 1024).toFixed(1);
         const uptime = process.uptime();
         const days = Math.floor(uptime / 86400);
         const hours = Math.floor((uptime % 86400) / 3600);
+        const mins = Math.floor((uptime % 3600) / 60);
         let failed = []; try { failed = fs.readJsonSync(FAILED_FILE); } catch {}
         let waStatus = { connected: false }; try { waStatus = fs.readJsonSync(STATUS_FILE); } catch {}
+
         let msg = "━━━━━━━━━━━━━━━━━━━━" + NL;
-        msg += "📋 *HEALTH CHECK*" + NL;
+        msg += "🛠 *SISTEM*" + NL;
         msg += "━━━━━━━━━━━━━━━━━━━━" + NL + NL;
-        msg += "🌐 WA : " + (waStatus.connected ? "Online" : "Offline") + NL;
-        msg += "💾 RAM : " + ram + " MB" + NL;
-        msg += "⏱ Uptime : " + days + "d " + hours + "h" + NL;
-        msg += "📥 Saved : " + stats.saved + NL;
-        msg += "❌ Failed : " + stats.failed + NL;
-        msg += "🔴 Last Err : " + (failed.length ? failed[0].error.substring(0, 40) : "None") + NL;
+        msg += "*💻 Server:*" + NL;
+        msg += "   RAM: " + ram + " MB" + NL;
+        msg += "   Uptime: " + days + "d " + hours + "h " + mins + "m" + NL;
+        msg += "   Node: " + process.version + NL + NL;
+        msg += "*🤖 Gemini AI:*" + NL;
+        msg += "   Status: " + (geminiTracker.lastStatus || "belum dipakai") + NL;
+        msg += "   Model: " + (geminiTracker.lastModel || "-") + NL;
+        msg += "   Sukses: " + geminiTracker.success + " | Gagal: " + geminiTracker.failed + NL;
+        msg += "   Terakhir: " + (geminiTracker.lastUsed || "-") + NL;
+        if (geminiTracker.lastError) msg += "   Error: " + geminiTracker.lastError + NL;
+        msg += NL;
+        msg += "*🔴 Error Terakhir:*" + NL;
+        msg += "   " + (failed.length ? failed[0].error.substring(0, 50) : "Tidak ada") + NL;
+        msg += "   " + (failed.length ? failed[0].time : "") + NL;
         msg += "━━━━━━━━━━━━━━━━━━━━";
-        return replyTelegram(chatId, msg);
-    }
 
-
-    if (text === "/services") {
+        // Tambah info PM2 jika bisa
         exec("pm2 jlist", function(err, stdout) {
-            if (err) return replyTelegram(chatId, "❌ Gagal baca PM2.");
-            try {
-                const list = JSON.parse(stdout);
-                let msg = "━━━━━━━━━━━━━━━━━━━━" + NL;
-                msg += "🛠 *PM2 SERVICES*" + NL;
-                msg += "━━━━━━━━━━━━━━━━━━━━" + NL + NL;
-                list.forEach(function(proc) {
-                    var statusEmoji = proc.pm2_env.status === "online" ? "🟢" : "🔴";
-                    msg += statusEmoji + " *" + proc.name + "*" + NL;
-                    msg += "   Status: " + proc.pm2_env.status + NL;
-                    msg += "   RAM: " + (proc.monit.memory / 1024 / 1024).toFixed(1) + " MB" + NL;
-                    msg += "   Restarts: " + proc.pm2_env.restart_time + NL + NL;
-                });
-                msg += "━━━━━━━━━━━━━━━━━━━━";
-                return replyTelegram(chatId, msg);
-            } catch (e) { return replyTelegram(chatId, "❌ Gagal parse PM2 data."); }
+            if (!err) {
+                try {
+                    var list = JSON.parse(stdout);
+                    var pmMsg = NL + "*📦 PM2 Services:*" + NL;
+                    list.forEach(function(proc) {
+                        var emoji = proc.pm2_env.status === "online" ? "🟢" : "🔴";
+                        pmMsg += "   " + emoji + " " + proc.name + " | " + (proc.monit.memory / 1024 / 1024).toFixed(0) + "MB | ↺" + proc.pm2_env.restart_time + NL;
+                    });
+                    pmMsg += "━━━━━━━━━━━━━━━━━━━━";
+                    replyTelegram(chatId, msg + pmMsg);
+                } catch(e) { replyTelegram(chatId, msg + "━━━━━━━━━━━━━━━━━━━━"); }
+            } else {
+                replyTelegram(chatId, msg + "━━━━━━━━━━━━━━━━━━━━");
+            }
         });
         return;
     }
+
+
+    // /services merged into /sistem
 
     if (text === "/reconnect") {
         await replyTelegram(chatId, "🔌 Reconnecting...");
@@ -1335,11 +1384,27 @@ async function callGemini(prompt) {
                     aiText = response.data.candidates[0].content.parts[0].text || "";
                 }
                 if (!aiText) throw new Error("Gemini tidak mengembalikan hasil.");
+
+                // TRACK SUCCESS
+                geminiTracker.success++;
+                geminiTracker.lastStatus = "OK";
+                geminiTracker.lastUsed = moment().format("YYYY-MM-DD HH:mm:ss");
+                geminiTracker.lastModel = models[m];
+                geminiTracker.lastError = null;
+
                 return aiText;
 
             } catch (err) {
                 lastError = err;
                 var statusCode = err.response ? err.response.status : 0;
+
+                // TRACK FAILURE
+                geminiTracker.failed++;
+                geminiTracker.lastStatus = "ERROR " + statusCode;
+                geminiTracker.lastUsed = moment().format("YYYY-MM-DD HH:mm:ss");
+                geminiTracker.lastModel = models[m];
+                geminiTracker.lastError = (err.message || "status " + statusCode).substring(0, 50);
+
                 if ((statusCode === 429 || statusCode === 503) && attempt < maxRetries) {
                     console.log("Gemini " + models[m] + " rate limited, retry in " + (retryDelay/1000) + "s...");
                     await new Promise(function(resolve) { setTimeout(resolve, retryDelay); });
