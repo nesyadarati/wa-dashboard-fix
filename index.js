@@ -119,18 +119,136 @@ function isGroupIgnored(groupName) {
 
 
 // ==========================================
-// CHAT LOGGER
+// CHAT LOGGER (ENHANCED - split per hari, enriched data)
 // ==========================================
 
 async function writeChatLog(groupName, logData) {
     try {
-        const logDir = path.join(__dirname, "WA-MEDIA", groupName);
-        await fs.ensureDir(logDir);
-        const logFile = path.join(logDir, "chat_history.jsonl");
-        await fs.appendFile(logFile, JSON.stringify(logData) + String.fromCharCode(10), "utf8");
+        // Split per hari: chat/2026-07-07.jsonl
+        var chatDir = path.join(__dirname, "WA-MEDIA", groupName, "chat");
+        await fs.ensureDir(chatDir);
+        var dateStr = (logData.time || "").slice(0, 10) || moment().format("YYYY-MM-DD");
+        var dailyFile = path.join(chatDir, dateStr + ".jsonl");
+        await fs.appendFile(dailyFile, JSON.stringify(logData) + String.fromCharCode(10), "utf8");
+
+        // JUGA tulis ke chat_history.jsonl (backward compatible)
+        var logDir = path.join(__dirname, "WA-MEDIA", groupName);
+        var legacyFile = path.join(logDir, "chat_history.jsonl");
+        await fs.appendFile(legacyFile, JSON.stringify(logData) + String.fromCharCode(10), "utf8");
+
+        // Update keyword index
+        updateKeywordIndex(groupName, dateStr, logData.message);
+
+        // Update contact registry
+        updateContactRegistry(logData.number, logData.sender, groupName);
+
     } catch (err) {
         console.log("GAGAL MENULIS CHAT LOG:", err.message);
     }
+}
+
+// KEYWORD INDEX - untuk search instant
+function updateKeywordIndex(groupName, dateStr, message) {
+    try {
+        var metaDir = path.join(__dirname, "WA-MEDIA", groupName, "meta");
+        fs.ensureDirSync(metaDir);
+        var keywordFile = path.join(metaDir, "keywords.json");
+
+        var keywords = {};
+        try { if (fs.existsSync(keywordFile)) keywords = fs.readJsonSync(keywordFile); } catch (e) {}
+
+        // Extract kata penting (>4 huruf, bukan kata umum)
+        var stopWords = ["yang", "untuk", "dengan", "sudah", "belum", "akan", "dari", "juga", "atau", "tidak", "bisa", "ada", "ini", "itu", "kalau", "karena", "tapi", "sama", "udah", "gak", "yg", "dong", "sih", "aja", "deh", "banget", "lagi", "nih", "kalo"];
+        var words = (message || "").toLowerCase().replace(/[^a-z0-9\s]/g, "").split(/\s+/);
+        words.forEach(function(word) {
+            if (word.length > 4 && stopWords.indexOf(word) === -1) {
+                if (!keywords[word]) keywords[word] = [];
+                if (keywords[word].indexOf(dateStr) === -1) {
+                    keywords[word].push(dateStr);
+                    // Max 30 dates per keyword
+                    if (keywords[word].length > 30) keywords[word] = keywords[word].slice(-30);
+                }
+            }
+        });
+
+        fs.writeJsonSync(keywordFile, keywords, { spaces: 2 });
+    } catch (e) {}
+}
+
+// CONTACT REGISTRY - siapa itu nomor ini?
+function updateContactRegistry(number, senderName, groupName) {
+    try {
+        if (!number || number === "unknown") return;
+        var registryFile = path.join(__dirname, "contacts.json");
+        var registry = {};
+        try { if (fs.existsSync(registryFile)) registry = fs.readJsonSync(registryFile); } catch (e) {}
+
+        if (!registry[number]) {
+            registry[number] = {
+                name: senderName,
+                groups: [groupName],
+                firstSeen: moment().format("YYYY-MM-DD HH:mm:ss"),
+                lastSeen: moment().format("YYYY-MM-DD HH:mm:ss"),
+                messageCount: 1
+            };
+        } else {
+            registry[number].lastSeen = moment().format("YYYY-MM-DD HH:mm:ss");
+            registry[number].messageCount = (registry[number].messageCount || 0) + 1;
+            // Update name if changed
+            if (senderName && senderName !== "Unknown") registry[number].name = senderName;
+            // Add group if new
+            if (registry[number].groups.indexOf(groupName) === -1) {
+                registry[number].groups.push(groupName);
+            }
+        }
+
+        fs.writeJsonSync(registryFile, registry, { spaces: 2 });
+    } catch (e) {}
+}
+
+// DAILY STATS - precomputed per hari
+function updateDailyStats(groupName, dateStr, type) {
+    try {
+        var metaDir = path.join(__dirname, "WA-MEDIA", groupName, "meta");
+        fs.ensureDirSync(metaDir);
+        var statsFile = path.join(metaDir, "daily-stats.json");
+
+        var stats = {};
+        try { if (fs.existsSync(statsFile)) stats = fs.readJsonSync(statsFile); } catch (e) {}
+
+        if (!stats[dateStr]) stats[dateStr] = { messages: 0, images: 0, videos: 0, documents: 0, senders: [] };
+        stats[dateStr].messages++;
+        if (type === "images") stats[dateStr].images++;
+        else if (type === "videos") stats[dateStr].videos++;
+        else if (type === "documents") stats[dateStr].documents++;
+
+        fs.writeJsonSync(statsFile, stats, { spaces: 2 });
+    } catch (e) {}
+}
+
+// DAILY SUMMARY CACHE - simpan rangkuman AI biar gak perlu panggil lagi
+function saveSummaryCache(groupName, dateStr, summary) {
+    try {
+        var summaryDir = path.join(__dirname, "WA-MEDIA", groupName, "summaries");
+        fs.ensureDirSync(summaryDir);
+        var summaryFile = path.join(summaryDir, dateStr + ".json");
+        fs.writeJsonSync(summaryFile, {
+            date: dateStr,
+            generatedAt: moment().format("YYYY-MM-DD HH:mm:ss"),
+            summary: summary
+        }, { spaces: 2 });
+    } catch (e) {}
+}
+
+function getSummaryCache(groupName, dateStr) {
+    try {
+        var summaryFile = path.join(__dirname, "WA-MEDIA", groupName, "summaries", dateStr + ".json");
+        if (fs.existsSync(summaryFile)) {
+            var data = fs.readJsonSync(summaryFile);
+            return data.summary || null;
+        }
+    } catch (e) {}
+    return null;
 }
 
 // ==========================================
@@ -398,19 +516,52 @@ async function start() {
             }
 
 
-            // Log chat text
+            // Log chat text (ENRICHED FORMAT)
             const textMessage = msg.message.conversation || 
                                 msg.message.extendedTextMessage?.text || 
                                 msg.message.imageMessage?.caption || 
                                 msg.message.videoMessage?.caption || "";
 
             if (textMessage.trim()) {
+                // Detect reply context
+                var replyTo = null;
+                var quotedMsg = null;
+                if (msg.message.extendedTextMessage?.contextInfo?.quotedMessage) {
+                    replyTo = msg.message.extendedTextMessage.contextInfo.stanzaId || null;
+                    quotedMsg = msg.message.extendedTextMessage.contextInfo.quotedMessage.conversation ||
+                                msg.message.extendedTextMessage.contextInfo.quotedMessage.extendedTextMessage?.text || null;
+                    if (quotedMsg && quotedMsg.length > 100) quotedMsg = quotedMsg.substring(0, 100) + "...";
+                }
+
+                // Detect mentions
+                var mentions = [];
+                if (msg.message.extendedTextMessage?.contextInfo?.mentionedJid) {
+                    mentions = msg.message.extendedTextMessage.contextInfo.mentionedJid.map(function(jid) {
+                        return jid.split("@")[0];
+                    });
+                }
+
+                // Detect forward
+                var isForward = !!(msg.message.extendedTextMessage?.contextInfo?.isForwarded);
+
+                // Determine chat type
+                var chatType = "text";
+                if (msg.message.imageMessage?.caption || msg.message.videoMessage?.caption) chatType = "media_caption";
+                else if (replyTo) chatType = "reply";
+                else if (isForward) chatType = "forward";
+
                 await writeChatLog(groupName, {
                     id: msg.key.id,
                     time: msgTime.format("YYYY-MM-DD HH:mm:ss"),
                     sender: senderName,
                     number: senderNumber,
-                    message: textMessage.trim()
+                    message: textMessage.trim(),
+                    type: chatType,
+                    replyTo: replyTo,
+                    quotedMsg: quotedMsg,
+                    mediaRef: null,
+                    mentions: mentions,
+                    isForward: isForward
                 });
             }
 
@@ -471,6 +622,29 @@ async function start() {
             });
 
             markProcessed(msg.key.id);
+
+            // Update daily stats
+            updateDailyStats(groupName, msgTime.format("YYYY-MM-DD"), type);
+
+            // Jika ada caption, update mediaRef di chat log terakhir
+            var captionText = msg.message.imageMessage?.caption || msg.message.videoMessage?.caption || "";
+            if (captionText.trim()) {
+                // Write chat entry with media reference
+                await writeChatLog(groupName, {
+                    id: msg.key.id + "_media",
+                    time: msgTime.format("YYYY-MM-DD HH:mm:ss"),
+                    sender: senderName,
+                    number: senderNumber,
+                    message: captionText.trim(),
+                    type: "media_caption",
+                    replyTo: null,
+                    quotedMsg: null,
+                    mediaRef: fileName,
+                    mediaType: type,
+                    mentions: [],
+                    isForward: false
+                });
+            }
             
             // KIRIM NOTIFIKASI FORMAT RAPIH
             const notifMsg = formatMediaNotification({
@@ -947,25 +1121,44 @@ async function generateChatSummary(groupName, targetDate) {
         throw new Error("GEMINI_API_KEY belum diset di .env");
     }
 
-    // Baca chat history
-    var logFile = path.join(__dirname, "WA-MEDIA", groupName, "chat_history.jsonl");
-    if (!fs.existsSync(logFile)) {
-        throw new Error("Belum ada riwayat chat untuk grup: " + groupName);
+    // CHECK CACHE FIRST
+    var cached = getSummaryCache(groupName, targetDate);
+    if (cached) {
+        var output = "";
+        output += "━━━━━━━━━━━━━━━━━━━━" + NL;
+        output += "📝 *RANGKUMAN CHAT*" + NL;
+        output += "━━━━━━━━━━━━━━━━━━━━" + NL + NL;
+        output += "👥 *Grup:* " + groupName + NL;
+        output += "📅 *Tanggal:* " + targetDate + NL;
+        output += "💾 _(dari cache)_" + NL + NL;
+        output += "━━━━━━━━━━━━━━━━━━━━" + NL + NL;
+        output += cached + NL + NL;
+        output += "━━━━━━━━━━━━━━━━━━━━";
+        return output;
     }
 
-    var fileContent = fs.readFileSync(logFile, "utf8");
-    var allLines = fileContent.trim().split(String.fromCharCode(10)).filter(Boolean);
+    // Try daily file first, fallback to legacy
+    var chatDir = path.join(__dirname, "WA-MEDIA", groupName, "chat");
+    var dailyFile = path.join(chatDir, targetDate + ".jsonl");
+    var logFile = path.join(__dirname, "WA-MEDIA", groupName, "chat_history.jsonl");
 
-    // Filter chat berdasarkan tanggal
     var chats = [];
-    allLines.forEach(function(line) {
-        try {
-            var chat = JSON.parse(line);
-            if (chat.time && chat.time.startsWith(targetDate)) {
-                chats.push(chat);
-            }
-        } catch (e) {}
-    });
+    if (fs.existsSync(dailyFile)) {
+        // Load from daily split file (faster)
+        var content = fs.readFileSync(dailyFile, "utf8");
+        content.trim().split(String.fromCharCode(10)).filter(Boolean).forEach(function(line) {
+            try { chats.push(JSON.parse(line)); } catch (e) {}
+        });
+    } else if (fs.existsSync(logFile)) {
+        // Fallback to legacy file
+        var content = fs.readFileSync(logFile, "utf8");
+        content.trim().split(String.fromCharCode(10)).filter(Boolean).forEach(function(line) {
+            try {
+                var chat = JSON.parse(line);
+                if (chat.time && chat.time.startsWith(targetDate)) chats.push(chat);
+            } catch (e) {}
+        });
+    }
 
     if (chats.length === 0) {
         throw new Error("Tidak ada chat pada tanggal " + targetDate + " di grup " + groupName);
@@ -1008,6 +1201,9 @@ async function generateChatSummary(groupName, targetDate) {
     output += "━━━━━━━━━━━━━━━━━━━━" + NL + NL;
     output += aiText + NL + NL;
     output += "━━━━━━━━━━━━━━━━━━━━";
+
+    // SAVE TO CACHE
+    saveSummaryCache(groupName, targetDate, aiText);
 
     return output;
 }
