@@ -19,7 +19,8 @@ const PINNED_FILE = path.join(__dirname, "pinned-groups.json");
 let sseClients = [];
 
 function sendLiveToastToBrowsers(data) {
-  sseClients.forEach(client => client.res.write("data: " + JSON.stringify(data) + "\n\n"));
+  var LF = String.fromCharCode(10);
+  sseClients.forEach(client => client.res.write("data: " + JSON.stringify(data) + LF + LF));
 }
 
 let lastSentMessageId = null;
@@ -348,13 +349,14 @@ app.get("/api/export-chat", async (req, res) => {
   try {
     await fsPromises.access(logFile);
     const fileContent = await fsPromises.readFile(logFile, "utf8");
-    const lines = fileContent.trim().split("\n");
+    const lines = fileContent.trim().split(String.fromCharCode(10));
 
-    let textOutput = `==================================================\n`;
-    textOutput += ` ARSIP CHAT GRUP: ${group.toUpperCase()}\n`;
-    if (startDate) textOutput += ` Rentang Filter: ${startDate} s/d ${endDate || startDate}\n`;
-    textOutput += ` Diunduh pada: ${new Date().toLocaleString('id-ID')}\n`;
-    textOutput += `==================================================\n\n`;
+    var NL = String.fromCharCode(10);
+    let textOutput = "==================================================" + NL;
+    textOutput += " ARSIP CHAT GRUP: " + group.toUpperCase() + NL;
+    if (startDate) textOutput += " Rentang Filter: " + startDate + " s/d " + (endDate || startDate) + NL;
+    textOutput += " Diunduh pada: " + new Date().toLocaleString('id-ID') + NL;
+    textOutput += "==================================================" + NL + NL;
 
     lines.forEach(line => {
       if (!line) return;
@@ -365,7 +367,7 @@ app.get("/api/export-chat", async (req, res) => {
           if (chatDayStr < startDate) return;
           if (endDate && chatDayStr > endDate) return;
         }
-        textOutput += `[${chat.time}] ${chat.sender} (${chat.number}): ${chat.message}\n`;
+        textOutput += "[" + chat.time + "] " + chat.sender + " (" + chat.number + "): " + chat.message + NL;
       } catch (e) {}
     });
 
@@ -791,10 +793,10 @@ function filterByDate(val) {
 function triggerChatExport() {
   const start = document.getElementById("chatStart").value;
   const end = document.getElementById("chatEnd").value;
-  const currentGroup = document.querySelector('input[name=\"group\"]').value;
-  let targetUrl = '/api/export-chat?group=' + encodeURIComponent(currentGroup);
-  if(start) targetUrl += '&start_date=' + start;
-  if(end) targetUrl += '&end_date=' + end;
+  const currentGroup = document.querySelector("input[name=group]").value;
+  let targetUrl = "/api/export-chat?group=" + encodeURIComponent(currentGroup);
+  if(start) targetUrl += "&start_date=" + start;
+  if(end) targetUrl += "&end_date=" + end;
   window.location.href = targetUrl;
 }
 
