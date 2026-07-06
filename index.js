@@ -535,7 +535,7 @@ async function sendMainMenuTelegram() {
                     [{ text: "📈 7D Chart" }, { text: "🚨 Logs Error" }, { text: "📊 Summary" }],
                     [{ text: "🛠 Services" }, { text: "🔌 Reconnect" }, { text: "🎨 QR Code" }],
                     [{ text: "🚫 Blacklist" }, { text: "🗑 Anti-Delete" }, { text: "🔍 Menu" }],
-                    [{ text: "📝 Rangkum Chat" }]
+                    [{ text: "📝 Rangkum Chat" }, { text: "📋 Report" }]
                 ],
                 resize_keyboard: true,
                 one_time_keyboard: false
@@ -624,6 +624,10 @@ async function handleCommand(text, chatId) {
     if (text === "🔍 Menu") text = "/menu";
     if (text === "📝 Rangkum Chat" || text === "/rangkum_help") {
         return replyTelegram(chatId, "📝 *Cara Rangkum Chat:*" + String.fromCharCode(10) + String.fromCharCode(10) + "Ketik: `/rangkum NamaGrup`" + String.fromCharCode(10) + "Contoh: `/rangkum Podomoro Park Bandung `" + String.fromCharCode(10) + String.fromCharCode(10) + "Untuk tanggal tertentu:" + String.fromCharCode(10) + "`/rangkum Podomoro Park Bandung  2026-07-05`" + String.fromCharCode(10) + String.fromCharCode(10) + "Tanpa tanggal = rangkum hari ini.");
+    }
+
+    if (text === "📋 Report" || text === "/report_help") {
+        return replyTelegram(chatId, "📋 *Cara Buat Report:*" + String.fromCharCode(10) + String.fromCharCode(10) + "Ketik: `/report NamaGrup`" + String.fromCharCode(10) + String.fromCharCode(10) + "Opsi waktu:" + String.fromCharCode(10) + "`/report NamaGrup hari-ini`" + String.fromCharCode(10) + "`/report NamaGrup kemarin`" + String.fromCharCode(10) + "`/report NamaGrup minggu-ini`" + String.fromCharCode(10) + "`/report NamaGrup 2026-07-05`" + String.fromCharCode(10) + String.fromCharCode(10) + "Tanpa opsi = hari ini.");
     }
 
     if (text === "/start" || text === "/menu") {
@@ -839,6 +843,48 @@ async function handleCommand(text, chatId) {
         return replyTelegram(chatId, msg);
     }
 
+    // REPORT COMMAND - laporan ringkas + statistik (buat jawab boss)
+    if (text.startsWith("/report ")) {
+        var reportParts = text.replace("/report ", "").trim().split(" ");
+        var reportDate = null;
+        var reportRange = null;
+
+        // Cek apakah ada keyword waktu
+        var lastPart = reportParts[reportParts.length - 1];
+        if (lastPart === "hari-ini" || lastPart === "today") {
+            reportParts.pop();
+            reportDate = moment().format("YYYY-MM-DD");
+            reportRange = reportDate;
+        } else if (lastPart === "kemarin" || lastPart === "yesterday") {
+            reportParts.pop();
+            reportDate = moment().subtract(1, "days").format("YYYY-MM-DD");
+            reportRange = reportDate;
+        } else if (lastPart === "minggu-ini" || lastPart === "this-week") {
+            reportParts.pop();
+            reportDate = moment().startOf("week").format("YYYY-MM-DD");
+            reportRange = moment().format("YYYY-MM-DD");
+        } else if (/^\d{4}-\d{2}-\d{2}$/.test(lastPart)) {
+            reportParts.pop();
+            reportDate = lastPart;
+            reportRange = lastPart;
+        }
+
+        var reportGroup = reportParts.join(" ");
+        if (!reportGroup) return replyTelegram(chatId, "Format: `/report NamaGrup`" + NL + "Opsi: `/report NamaGrup hari-ini`" + NL + "`/report NamaGrup kemarin`" + NL + "`/report NamaGrup minggu-ini`" + NL + "`/report NamaGrup 2026-07-05`");
+
+        if (!reportDate) { reportDate = moment().format("YYYY-MM-DD"); reportRange = reportDate; }
+
+        await replyTelegram(chatId, "📋 Membuat laporan *" + reportGroup + "*...");
+
+        try {
+            var reportResult = await generateReport(reportGroup, reportDate, reportRange);
+            await replyTelegram(chatId, reportResult);
+        } catch (err) {
+            await replyTelegram(chatId, "❌ Gagal: " + err.message);
+        }
+        return;
+    }
+
     // RANGKUMAN CHAT DENGAN GEMINI AI
     if (text.startsWith("/rangkum ")) {
         var parts = text.replace("/rangkum ", "").trim().split(" ");
@@ -968,6 +1014,107 @@ function getUniqueCount(chats) {
     var senders = {};
     chats.forEach(function(c) { senders[c.sender] = true; });
     return Object.keys(senders).length;
+}
+
+// ==========================================
+// GENERATE REPORT (untuk Telegram - ringkas)
+// ==========================================
+
+async function generateReport(groupName, startDate, endDate) {
+    var NL = String.fromCharCode(10);
+    var GEMINI_KEY = process.env.GEMINI_API_KEY;
+    if (!GEMINI_KEY) throw new Error("GEMINI_API_KEY belum diset di .env");
+
+    // Baca chat
+    var logFile = path.join(__dirname, "WA-MEDIA", groupName, "chat_history.jsonl");
+    var chats = [];
+    if (fs.existsSync(logFile)) {
+        var content = fs.readFileSync(logFile, "utf8");
+        var lines = content.trim().split(String.fromCharCode(10)).filter(Boolean);
+        lines.forEach(function(line) {
+            try {
+                var chat = JSON.parse(line);
+                var chatDate = (chat.time || "").slice(0, 10);
+                if (chatDate >= startDate && chatDate <= endDate) chats.push(chat);
+            } catch (e) {}
+        });
+    }
+
+    // Hitung media
+    var mediaDir = path.join(__dirname, "WA-MEDIA", groupName);
+    var photoCount = 0, videoCount = 0, docCount = 0;
+    function countMedia(dir) {
+        if (!fs.existsSync(dir)) return;
+        var items = fs.readdirSync(dir);
+        items.forEach(function(item) {
+            var full = path.join(dir, item);
+            var stat = fs.statSync(full);
+            if (stat.isDirectory()) { countMedia(full); }
+            else {
+                var fileDate = stat.mtime.toISOString().slice(0, 10);
+                if (fileDate >= startDate && fileDate <= endDate) {
+                    var ext = path.extname(item).toLowerCase();
+                    if ([".jpg", ".jpeg", ".png", ".webp"].indexOf(ext) !== -1) photoCount++;
+                    else if ([".mp4", ".mov", ".mkv", ".mp3", ".opus", ".wav"].indexOf(ext) !== -1) videoCount++;
+                    else if (item !== "chat_history.jsonl") docCount++;
+                }
+            }
+        });
+    }
+    countMedia(mediaDir);
+
+    if (chats.length === 0 && photoCount === 0) {
+        throw new Error("Tidak ada data pada periode " + startDate + " s/d " + endDate);
+    }
+
+    // Chat text untuk AI
+    var chatText = chats.map(function(c) {
+        return "[" + c.time + "] " + c.sender + ": " + c.message;
+    }).join(NL);
+    if (chatText.length > 10000) chatText = chatText.substring(chatText.length - 10000);
+
+    // Prompt - bahasa manusia, ringkas untuk dibaca cepat
+    var prompt = "Kamu membantu seorang project manager membuat laporan ringkas dari chat WhatsApp grup proyek." + NL;
+    prompt += "Tulis dalam Bahasa Indonesia yang NATURAL - seperti kamu cerita ke teman soal apa yang terjadi." + NL;
+    prompt += "Jangan pakai format kaku atau robot. Tulis singkat, padat, mudah dibaca dalam 30 detik." + NL + NL;
+    prompt += "Grup: " + groupName + NL;
+    prompt += "Periode: " + startDate + " s/d " + endDate + NL + NL;
+    prompt += "Buatkan laporan ringkas mencakup:" + NL;
+    prompt += "- Apa yang terjadi (aktivitas utama)" + NL;
+    prompt += "- Ada keputusan/target apa" + NL;
+    prompt += "- Ada masalah/kendala gak" + NL;
+    prompt += "- Kesimpulan 1 kalimat" + NL + NL;
+    prompt += "--- CHAT ---" + NL + chatText;
+
+    // Panggil Gemini
+    var geminiUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=" + GEMINI_KEY;
+    var aiResponse = await axios.post(geminiUrl, {
+        contents: [{ parts: [{ text: prompt }] }]
+    }, { headers: { "Content-Type": "application/json" }, timeout: 30000 });
+
+    var aiText = "";
+    if (aiResponse.data.candidates && aiResponse.data.candidates[0] && aiResponse.data.candidates[0].content) {
+        aiText = aiResponse.data.candidates[0].content.parts[0].text || "";
+    }
+    if (!aiText) throw new Error("Tidak ada hasil dari AI");
+
+    // Format output
+    var periodLabel = (startDate === endDate) ? startDate : startDate + " s/d " + endDate;
+    var uniqueSenders = getUniqueCount(chats);
+
+    var output = "";
+    output += "━━━━━━━━━━━━━━━━━━━━" + NL;
+    output += "📋 *LAPORAN GRUP*" + NL;
+    output += "━━━━━━━━━━━━━━━━━━━━" + NL + NL;
+    output += "👥 " + groupName + NL;
+    output += "📅 " + periodLabel + NL;
+    output += "💬 " + chats.length + " pesan | 👤 " + uniqueSenders + " orang" + NL;
+    output += "📷 " + photoCount + " foto | 🎬 " + videoCount + " video | 📎 " + docCount + " dok" + NL;
+    output += NL + "━━━━━━━━━━━━━━━━━━━━" + NL + NL;
+    output += aiText + NL + NL;
+    output += "━━━━━━━━━━━━━━━━━━━━";
+
+    return output;
 }
 
 
