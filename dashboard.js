@@ -431,6 +431,15 @@ app.get("/", async (req, res) => {
   }
 
   if (search) { const allMedia = await getAllMedia(); gallery = allMedia.filter((f) => f.name.toLowerCase().includes(search)); }
+
+  // Sort gallery based on sort parameter
+  const sortBy = req.query.sort || "newest";
+  if (sortBy === "oldest") { gallery.sort((a, b) => a.time - b.time); }
+  else if (sortBy === "largest") { gallery.sort((a, b) => { try { return fs.statSync(b.path).size - fs.statSync(a.path).size; } catch { return 0; } }); }
+  else if (sortBy === "smallest") { gallery.sort((a, b) => { try { return fs.statSync(a.path).size - fs.statSync(b.path).size; } catch { return 0; } }); }
+  else if (sortBy === "name") { gallery.sort((a, b) => a.name.localeCompare(b.name)); }
+  // default "newest" is already sorted by time desc
+
   const stats = await scanDir(MEDIA_DIR); const storage = await getFolderSize(MEDIA_DIR); const dbResults = searchMediaDB(keyword);
   let statsCounter = { saved: 0, failed: 0 }; try { statsCounter = JSON.parse(fs.readFileSync(path.join(__dirname, "stats.json"), "utf8")); } catch {}
 
@@ -571,7 +580,12 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxyge
 .failed-log-table th { padding: 10px; color: var(--text-muted); border-bottom: 2px solid var(--border); }
 .failed-log-table td { padding: 10px; border-bottom: 1px solid var(--border); color: var(--text-secondary); vertical-align: middle; }
 
-@media (max-width: 768px) { .layout { grid-template-columns: 1fr; padding: 12px; } .sidebar { order: 2; } .main-content { order: 1; } .stats-grid { grid-template-columns: repeat(4, 1fr); gap: 8px; } .gallery { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); } }
+@media (max-width: 768px) { .layout { grid-template-columns: 1fr; padding: 12px; } .sidebar { order: 2; } .main-content { order: 1; } .stats-grid { grid-template-columns: repeat(4, 1fr); gap: 8px; } .gallery { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); } .header { flex-wrap: wrap; gap: 10px; padding: 12px 16px; } .header-actions { flex-wrap: wrap; gap: 6px; } .toolbar { flex-direction: column; align-items: stretch; } .filter-tabs { overflow-x: auto; } .group-stats { flex-wrap: wrap; gap: 10px; } }
+
+/* DARK/LIGHT THEME SUPPORT */
+body.light-theme { --bg-primary: #ffffff; --bg-secondary: #f6f8fa; --bg-tertiary: #f0f2f5; --bg-hover: #e8eaed; --border: #d0d7de; --text-primary: #1f2328; --text-secondary: #656d76; --text-muted: #8b949e; --accent-green: #1a7f37; --accent-blue: #0969da; --accent-red: #cf222e; --accent-orange: #9a6700; --accent-purple: #8250df; --shadow: 0 4px 12px rgba(0,0,0,0.1); }
+.theme-toggle { position: fixed; bottom: 24px; left: 24px; width: 44px; height: 44px; border-radius: 50%; background: var(--bg-secondary); border: 1px solid var(--border); color: var(--text-primary); cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; z-index: 5000; box-shadow: var(--shadow); }
+.theme-toggle:hover { background: var(--bg-hover); }
 </style>
 </head>
 <body>
@@ -585,6 +599,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxyge
   </div>
   <div class="header-actions">
     <a href="/blacklist" class="btn btn-ghost btn-sm">🚫 Blacklist</a>
+    <a href="/antidelete" class="btn btn-ghost btn-sm">🗑 Anti-Delete</a>
     <a href="/restart-bot" class="btn btn-danger btn-sm">🔄 Restart</a>
     <a href="/logout-wa" class="btn btn-warning btn-sm">🚪 Logout WA</a>
   </div>
@@ -592,6 +607,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxyge
 
 <div id="toastContainer" class="toast-container"></div>
 <button id="btnTop" class="btn-top" onclick="scrollToTop()">⬆️</button>
+<button class="theme-toggle" onclick="toggleTheme()" title="Toggle Dark/Light">🌓</button>
 
 <div id="lightbox" class="lightbox" onclick="closeLightbox()">
   <button class="lightbox-close" onclick="closeLightbox()">✕</button>
@@ -686,6 +702,13 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxyge
           <a href="/?group=${selectedGroup || ''}&date=${targetDate || ''}&type=videos" class="filter-tab ${type === 'videos' ? 'active' : ''}">Video/Audio</a>
           <a href="/?group=${selectedGroup || ''}&date=${targetDate || ''}&type=documents" class="filter-tab ${type === 'documents' ? 'active' : ''}">Dokumen</a>
         </div>
+        <select name="sort" class="btn btn-ghost btn-sm" style="padding:8px 12px;">
+          <option value="newest" ${req.query.sort === 'newest' || !req.query.sort ? 'selected' : ''}>Terbaru</option>
+          <option value="oldest" ${req.query.sort === 'oldest' ? 'selected' : ''}>Terlama</option>
+          <option value="largest" ${req.query.sort === 'largest' ? 'selected' : ''}>Terbesar</option>
+          <option value="smallest" ${req.query.sort === 'smallest' ? 'selected' : ''}>Terkecil</option>
+          <option value="name" ${req.query.sort === 'name' ? 'selected' : ''}>Nama A-Z</option>
+        </select>
         <button type="submit" class="btn btn-primary btn-sm">Filter</button>
       </form>
       
@@ -841,6 +864,16 @@ window.onscroll = function() {
 
 function scrollToTop() {
   window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function toggleTheme() {
+  document.body.classList.toggle("light-theme");
+  var isLight = document.body.classList.contains("light-theme");
+  localStorage.setItem("theme", isLight ? "light" : "dark");
+}
+// Load saved theme
+if (localStorage.getItem("theme") === "light") {
+  document.body.classList.add("light-theme");
 }
 
 function refreshLightboxQueue() {
@@ -1188,6 +1221,59 @@ document.addEventListener("click", function(e) {
   });
 });
 </script>
+</body>
+</html>`);
+});
+
+// ==========================================
+// HALAMAN ANTI-DELETE VIEWER
+// ==========================================
+app.get("/antidelete", (req, res) => {
+  const ANTIDELETE_FILE = path.join(__dirname, "antidelete-log.json");
+  let logs = [];
+  try { if (fs.existsSync(ANTIDELETE_FILE)) logs = JSON.parse(fs.readFileSync(ANTIDELETE_FILE, "utf8")); } catch {}
+
+  let waStatus = "OFFLINE";
+  try { const status = JSON.parse(fs.readFileSync(STATUS_FILE, "utf8")); waStatus = status.connected ? "ONLINE" : "OFFLINE"; } catch {}
+
+  const logsHtml = logs.length === 0 ? '<p style="text-align:center;color:var(--text-muted);padding:40px;">Belum ada pesan yang ditarik/dihapus tercatat.</p>' :
+    logs.slice(0, 50).map(function(item) {
+      return '<div style="background:var(--bg-tertiary);border:1px solid var(--border);border-radius:10px;padding:14px 18px;display:flex;gap:14px;align-items:flex-start;"><div style="font-size:1.8rem;">🗑</div><div style="flex:1;"><div style="font-weight:600;font-size:0.9rem;margin-bottom:4px;">' + (item.group || 'Unknown') + '</div><div style="font-size:0.8rem;color:var(--text-secondary);">👤 ' + (item.sender || 'Unknown') + ' &bull; 📱 ' + (item.number || '-') + '</div><div style="font-size:0.8rem;color:var(--text-muted);margin-top:4px;">💬 ' + (item.content || '-') + '</div><div style="font-size:0.72rem;color:var(--text-muted);margin-top:6px;">🕒 ' + (item.time || '-') + ' &bull; ID: <code>' + (item.messageId || '-') + '</code></div></div></div>';
+    }).join('');
+
+  res.send(`<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Anti-Delete Viewer - WA Media Dashboard</title>
+<style>
+:root { --bg-primary:#0d1117;--bg-secondary:#161b22;--bg-tertiary:#21262d;--bg-hover:#30363d;--border:#30363d;--text-primary:#e6edf3;--text-secondary:#8b949e;--text-muted:#6e7681;--accent-green:#25D366;--accent-blue:#58a6ff;--accent-red:#f85149;--accent-orange:#d29922;--radius-sm:6px;--radius-md:10px;--radius-lg:16px;--shadow:0 8px 24px rgba(0,0,0,0.4); }
+* { margin:0;padding:0;box-sizing:border-box; }
+body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg-primary);color:var(--text-primary);min-height:100vh; }
+.header { background:var(--bg-secondary);border-bottom:1px solid var(--border);padding:16px 24px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100; }
+.header h1 { font-size:1.3rem;font-weight:700;display:flex;align-items:center;gap:10px; }
+.btn { display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:var(--radius-sm);font-size:0.85rem;font-weight:600;text-decoration:none;border:none;cursor:pointer;transition:all 0.2s;background:var(--bg-tertiary);color:var(--text-primary);border:1px solid var(--border); }
+.btn:hover { background:var(--bg-hover);border-color:var(--accent-blue); }
+.container { max-width:900px;margin:0 auto;padding:24px;display:flex;flex-direction:column;gap:12px; }
+.stats-bar { display:flex;gap:16px;padding:12px 16px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius-md);font-size:0.85rem;color:var(--text-secondary); }
+</style>
+</head>
+<body>
+<header class="header">
+  <h1>🗑 Anti-Delete Viewer</h1>
+  <div style="display:flex;gap:10px;align-items:center;">
+    <span style="padding:6px 14px;border-radius:20px;font-size:0.8rem;font-weight:600;${waStatus === 'ONLINE' ? 'background:rgba(37,211,102,0.15);color:#25D366;border:1px solid rgba(37,211,102,0.3);' : 'background:rgba(248,81,73,0.15);color:#f85149;border:1px solid rgba(248,81,73,0.3);'}">${waStatus}</span>
+    <a href="/" class="btn">⬅️ Dashboard</a>
+  </div>
+</header>
+<div class="container">
+  <div class="stats-bar">
+    <span>📊 Total pesan ditarik tercatat: <strong>${logs.length}</strong></span>
+    <span>📅 Menampilkan 50 terbaru</span>
+  </div>
+  ${logsHtml}
+</div>
 </body>
 </html>`);
 });

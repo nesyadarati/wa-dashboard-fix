@@ -366,10 +366,26 @@ async function start() {
             senderNumber = (msg.key.participantAlt || msg.key.participant || "unknown").split("@")[0];
             const senderName = msg.pushName || "Unknown";
 
-            // Anti-delete detection
+            // Anti-delete detection + save to log
             if (msg.message.protocolMessage && msg.message.protocolMessage.type === 3) {
                 const targetDeletedId = msg.message.protocolMessage.key.id;
                 let NL = String.fromCharCode(10);
+
+                // Save to antidelete-log.json
+                const ANTIDELETE_FILE = path.join(__dirname, "antidelete-log.json");
+                let adLogs = [];
+                try { if (fs.existsSync(ANTIDELETE_FILE)) adLogs = fs.readJsonSync(ANTIDELETE_FILE); } catch {}
+                adLogs.unshift({
+                    time: moment().format("YYYY-MM-DD HH:mm:ss"),
+                    group: groupName,
+                    sender: senderName,
+                    number: senderNumber,
+                    messageId: targetDeletedId,
+                    content: "(pesan ditarik)"
+                });
+                if (adLogs.length > 500) adLogs = adLogs.slice(0, 500);
+                fs.writeJsonSync(ANTIDELETE_FILE, adLogs, { spaces: 2 });
+
                 let delMsg = "━━━━━━━━━━━━━━━━━━━━" + NL;
                 delMsg += "🗑 *PESAN DITARIK / DIHAPUS*" + NL;
                 delMsg += "━━━━━━━━━━━━━━━━━━━━" + NL + NL;
@@ -504,24 +520,46 @@ async function start() {
 // ==========================================
 // TELEGRAM INLINE MENU & COMMANDS
 // ==========================================
+// TELEGRAM MENU (Reply Keyboard - muncul saat klik tombol menu)
+// ==========================================
 
 async function sendMainMenuTelegram() {
     try {
         await axios.post("https://api.telegram.org/bot" + process.env.BOT_TOKEN + "/sendMessage", {
             chat_id: process.env.CHAT_ID,
-            text: "📱 *WA Media Bot - Connected*",
+            text: "📱 *WA Media Bot - Connected*" + String.fromCharCode(10) + String.fromCharCode(10) + "Klik tombol menu di bawah untuk mengakses fitur bot.",
+            parse_mode: "Markdown",
+            reply_markup: {
+                keyboard: [
+                    [{ text: "📊 Stats" }, { text: "🟢 Status" }, { text: "📋 Health" }],
+                    [{ text: "📈 7D Chart" }, { text: "🚨 Logs Error" }, { text: "📊 Summary" }],
+                    [{ text: "🛠 Services" }, { text: "🔌 Reconnect" }, { text: "🎨 QR Code" }],
+                    [{ text: "🚫 Blacklist" }, { text: "🗑 Anti-Delete" }, { text: "🔍 Menu" }]
+                ],
+                resize_keyboard: true,
+                one_time_keyboard: false
+            }
+        });
+    } catch (e) { console.log("Gagal kirim menu:", e.message); }
+}
+
+async function sendInlineMenu(chatId) {
+    try {
+        await axios.post("https://api.telegram.org/bot" + process.env.BOT_TOKEN + "/sendMessage", {
+            chat_id: chatId,
+            text: "📱 *WA MEDIA BOT - MENU*" + String.fromCharCode(10) + String.fromCharCode(10) + "Pilih fitur yang ingin diakses:",
             parse_mode: "Markdown",
             reply_markup: {
                 inline_keyboard: [
                     [{ text: "📊 Stats", callback_data: "/stats" }, { text: "🟢 Status", callback_data: "/status" }],
-                    [{ text: "🛠 Services", callback_data: "/services" }, { text: "🔌 Reconnect", callback_data: "/reconnect" }],
-                    [{ text: "📈 7D Chart", callback_data: "/chart" }, { text: "🚨 Logs Error", callback_data: "/viewlogs" }],
-                    [{ text: "📋 Health", callback_data: "/health" }, { text: "📊 Summary", callback_data: "/summary_now" }],
-                    [{ text: "🚫 Blacklist", callback_data: "/blacklist" }]
+                    [{ text: "📈 7D Chart", callback_data: "/chart" }, { text: "📋 Health", callback_data: "/health" }],
+                    [{ text: "🛠 Services", callback_data: "/services" }, { text: "🚨 Logs Error", callback_data: "/viewlogs" }],
+                    [{ text: "📊 Summary Now", callback_data: "/summary_now" }, { text: "🔌 Reconnect", callback_data: "/reconnect" }],
+                    [{ text: "🚫 Blacklist", callback_data: "/blacklist" }, { text: "🗑 Anti-Delete", callback_data: "/antidelete" }]
                 ]
             }
         });
-    } catch (e) { console.log("Gagal kirim menu:", e.message); }
+    } catch (e) { console.log("Gagal kirim inline menu:", e.message); }
 }
 
 let lastUpdateId = 0;
@@ -549,6 +587,24 @@ async function telegramCommands() {
 
 async function handleCommand(text, chatId) {
     var NL = String.fromCharCode(10);
+
+    // Map reply keyboard button texts to commands
+    if (text === "📊 Stats") text = "/stats";
+    if (text === "🟢 Status") text = "/status";
+    if (text === "📋 Health") text = "/health";
+    if (text === "📈 7D Chart") text = "/chart";
+    if (text === "🚨 Logs Error") text = "/viewlogs";
+    if (text === "📊 Summary") text = "/summary_now";
+    if (text === "🛠 Services") text = "/services";
+    if (text === "🔌 Reconnect") text = "/reconnect";
+    if (text === "🎨 QR Code") text = "/getqr";
+    if (text === "🚫 Blacklist") text = "/blacklist";
+    if (text === "🗑 Anti-Delete") text = "/antidelete";
+    if (text === "🔍 Menu") text = "/menu";
+
+    if (text === "/start" || text === "/menu") {
+        return sendInlineMenu(chatId);
+    }
 
     if (text === "/status") {
         let stats = loadStats();
@@ -732,6 +788,29 @@ async function handleCommand(text, chatId) {
         msg += "🎬 Videos : " + results.filter(function(x){return x.type==="videos";}).length + NL;
         msg += "📎 Documents : " + results.filter(function(x){return x.type==="documents";}).length + NL;
         msg += "📦 Total : " + results.length + NL;
+        msg += "━━━━━━━━━━━━━━━━━━━━";
+        return replyTelegram(chatId, msg);
+    }
+
+    // ANTI-DELETE VIEWER - lihat pesan yang dihapus
+    if (text === "/antidelete") {
+        const ANTIDELETE_FILE = path.join(__dirname, "antidelete-log.json");
+        let logs = [];
+        try { if (fs.existsSync(ANTIDELETE_FILE)) logs = fs.readJsonSync(ANTIDELETE_FILE); } catch {}
+        if (logs.length === 0) {
+            return replyTelegram(chatId, "✅ Belum ada pesan yang ditarik/dihapus tercatat.");
+        }
+        const recent = logs.slice(0, 10);
+        let msg = "━━━━━━━━━━━━━━━━━━━━" + NL;
+        msg += "🗑 *PESAN DIHAPUS/DITARIK*" + NL;
+        msg += "━━━━━━━━━━━━━━━━━━━━" + NL + NL;
+        recent.forEach(function(item, idx) {
+            msg += "*[" + (idx + 1) + "]* " + (item.time || "-") + NL;
+            msg += "   👥 " + (item.group || "-") + NL;
+            msg += "   👤 " + (item.sender || "-") + NL;
+            msg += "   💬 " + (item.content || "_media/unknown_") + NL + NL;
+        });
+        msg += "_Total tercatat: " + logs.length + " pesan_" + NL;
         msg += "━━━━━━━━━━━━━━━━━━━━";
         return replyTelegram(chatId, msg);
     }
