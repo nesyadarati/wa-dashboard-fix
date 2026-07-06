@@ -608,6 +608,7 @@ body.light-theme { --bg-primary: #ffffff; --bg-secondary: #f6f8fa; --bg-tertiary
     </span>
   </div>
   <div class="header-actions">
+    <a href="/report" class="btn btn-ghost btn-sm">📋 Report</a>
     <a href="/blacklist" class="btn btn-ghost btn-sm">🚫 Blacklist</a>
     <a href="/antidelete" class="btn btn-ghost btn-sm">🗑 Anti-Delete</a>
     <a href="/restart-bot" class="btn btn-danger btn-sm">🔄 Restart</a>
@@ -1284,6 +1285,374 @@ body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif
   </div>
   ${logsHtml}
 </div>
+</body>
+</html>`);
+});
+
+// ==========================================
+// REPORT GENERATOR API
+// ==========================================
+app.post("/api/generate-report", async (req, res) => {
+  const { group, startDate, endDate } = req.body;
+  if (!group || !startDate) return res.status(400).json({ error: "Grup dan tanggal wajib diisi" });
+
+  const GEMINI_KEY = process.env.GEMINI_API_KEY;
+  if (!GEMINI_KEY) return res.status(500).json({ error: "GEMINI_API_KEY belum diset di .env" });
+
+  try {
+    var NL = String.fromCharCode(10);
+    var endDt = endDate || startDate;
+
+    // 1. Ambil chat history
+    var logFile = path.join(MEDIA_DIR, group, "chat_history.jsonl");
+    var chats = [];
+    if (fs.existsSync(logFile)) {
+      var content = fs.readFileSync(logFile, "utf8");
+      var lines = content.trim().split(String.fromCharCode(10)).filter(Boolean);
+      lines.forEach(function(line) {
+        try {
+          var chat = JSON.parse(line);
+          var chatDate = (chat.time || "").slice(0, 10);
+          if (chatDate >= startDate && chatDate <= endDt) {
+            chats.push(chat);
+          }
+        } catch (e) {}
+      });
+    }
+
+    // 2. Ambil media files dalam rentang tanggal
+    var mediaResult = await getGroupMedia(group, 1, 99999, null);
+    var allMedia = mediaResult.data;
+    var mediaInRange = allMedia.filter(function(f) {
+      try {
+        var stat = fs.statSync(f.path);
+        var fileDate = new Date(stat.mtime).toISOString().slice(0, 10);
+        return fileDate >= startDate && fileDate <= endDt;
+      } catch (e) { return false; }
+    });
+
+    // 3. Hitung statistik
+    var photoCount = 0, videoCount = 0, docCount = 0;
+    var photos = [];
+    mediaInRange.forEach(function(f) {
+      var ext = path.extname(f.name).toLowerCase();
+      if ([".jpg", ".jpeg", ".png", ".webp"].indexOf(ext) !== -1) {
+        photoCount++;
+        photos.push(f);
+      } else if ([".mp4", ".mov", ".mkv", ".mp3", ".opus", ".wav"].indexOf(ext) !== -1) {
+        videoCount++;
+      } else {
+        docCount++;
+      }
+    });
+
+    // 4. Siapkan chat text untuk AI (max 12000 chars)
+    var chatText = chats.map(function(c) {
+      return "[" + c.time + "] " + c.sender + ": " + c.message;
+    }).join(NL);
+    if (chatText.length > 12000) chatText = chatText.substring(chatText.length - 12000);
+
+    // 5. Prompt Gemini - bahasa manusia natural
+    var prompt = "Kamu adalah asisten yang membuat laporan progres proyek dari chat WhatsApp grup." + NL;
+    prompt += "Tulis laporan dengan bahasa Indonesia yang NATURAL dan MANUSIAWI - seperti orang sungguhan menulis laporan, bukan seperti robot." + NL;
+    prompt += "Jangan pakai format bullet point kaku. Tulis dalam paragraf yang mengalir, seperti email profesional ke klien." + NL + NL;
+    prompt += "Grup: " + group + NL;
+    prompt += "Periode: " + startDate + " s/d " + endDt + NL;
+    prompt += "Total foto: " + photoCount + ", Video: " + videoCount + ", Dokumen: " + docCount + NL;
+    prompt += "Total chat: " + chats.length + " pesan" + NL + NL;
+    prompt += "Buatkan:" + NL;
+    prompt += "1. Paragraf rangkuman aktivitas per hari (tulis natural)" + NL;
+    prompt += "2. Poin-poin keputusan/target jika ada" + NL;
+    prompt += "3. Masalah/kendala yang muncul jika ada" + NL;
+    prompt += "4. Kesimpulan singkat 1-2 kalimat" + NL + NL;
+    prompt += "--- LOG CHAT ---" + NL + chatText;
+
+    // 6. Panggil Gemini
+    var axios = require("axios");
+    var geminiUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=" + GEMINI_KEY;
+    var aiResponse = await axios.post(geminiUrl, {
+      contents: [{ parts: [{ text: prompt }] }]
+    }, { headers: { "Content-Type": "application/json" }, timeout: 30000 });
+
+    var aiText = "";
+    if (aiResponse.data.candidates && aiResponse.data.candidates[0] && aiResponse.data.candidates[0].content) {
+      aiText = aiResponse.data.candidates[0].content.parts[0].text || "";
+    }
+
+    // 7. Pilih highlight photos (max 12, spread across days)
+    var highlightPhotos = [];
+    var daysMap = {};
+    photos.forEach(function(f) {
+      try {
+        var stat = fs.statSync(f.path);
+        var day = new Date(stat.mtime).toISOString().slice(0, 10);
+        if (!daysMap[day]) daysMap[day] = [];
+        daysMap[day].push(f);
+      } catch (e) {}
+    });
+    // Ambil max 2 foto per hari, total max 12
+    Object.keys(daysMap).sort().forEach(function(day) {
+      var dayPhotos = daysMap[day];
+      var pick = dayPhotos.slice(0, 2);
+      pick.forEach(function(p) {
+        if (highlightPhotos.length < 12) {
+          var relPath = path.relative(MEDIA_DIR, p.path).split("\\").join("/");
+          highlightPhotos.push({ name: p.name, src: "/media/" + relPath, date: day });
+        }
+      });
+    });
+
+    // 8. Return result
+    res.json({
+      success: true,
+      report: aiText,
+      stats: { photos: photoCount, videos: videoCount, documents: docCount, chats: chats.length, participants: getUniqueParticipants(chats) },
+      highlights: highlightPhotos,
+      allPhotos: photos.slice(0, 50).map(function(p) {
+        var relPath = path.relative(MEDIA_DIR, p.path).split("\\").join("/");
+        return { name: p.name, src: "/media/" + relPath };
+      })
+    });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+function getUniqueParticipants(chats) {
+  var s = {};
+  chats.forEach(function(c) { s[c.sender] = true; });
+  return Object.keys(s).length;
+}
+
+// ==========================================
+// HALAMAN REPORT GENERATOR
+// ==========================================
+app.get("/report", async (req, res) => {
+  const groups = await getGroups();
+  let waStatus = "OFFLINE";
+  try { const status = JSON.parse(fs.readFileSync(STATUS_FILE, "utf8")); waStatus = status.connected ? "ONLINE" : "OFFLINE"; } catch {}
+
+  const groupOptions = groups.map(function(g) {
+    return '<option value="' + g.replace(/"/g, '&quot;') + '">' + g + '</option>';
+  }).join("");
+
+  res.send(`<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Report Generator - WA Media Dashboard</title>
+<style>
+:root { --bg-primary:#0d1117;--bg-secondary:#161b22;--bg-tertiary:#21262d;--bg-hover:#30363d;--border:#30363d;--text-primary:#e6edf3;--text-secondary:#8b949e;--text-muted:#6e7681;--accent-green:#25D366;--accent-blue:#58a6ff;--accent-red:#f85149;--accent-orange:#d29922;--radius-sm:6px;--radius-md:10px;--radius-lg:16px;--shadow:0 8px 24px rgba(0,0,0,0.4); }
+* { margin:0;padding:0;box-sizing:border-box; }
+body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg-primary);color:var(--text-primary);min-height:100vh; }
+.header { background:var(--bg-secondary);border-bottom:1px solid var(--border);padding:16px 24px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100; }
+.header h1 { font-size:1.3rem;font-weight:700;display:flex;align-items:center;gap:10px; }
+.btn { display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:var(--radius-sm);font-size:0.85rem;font-weight:600;text-decoration:none;border:none;cursor:pointer;transition:all 0.2s; }
+.btn-back { background:var(--bg-tertiary);color:var(--text-primary);border:1px solid var(--border); }
+.btn-back:hover { background:var(--bg-hover);border-color:var(--accent-blue); }
+.btn-primary { background:var(--accent-blue);color:#fff;border:1px solid var(--accent-blue); }
+.btn-primary:hover { opacity:0.9; }
+.btn-primary:disabled { opacity:0.5;cursor:not-allowed; }
+.container { max-width:1100px;margin:0 auto;padding:24px; }
+.form-row { display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-bottom:24px;background:var(--bg-secondary);padding:16px 20px;border-radius:var(--radius-lg);border:1px solid var(--border); }
+.form-group { display:flex;flex-direction:column;gap:4px; }
+.form-group label { font-size:0.75rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px; }
+.form-group select, .form-group input { background:var(--bg-tertiary);border:1px solid var(--border);color:var(--text-primary);padding:8px 12px;border-radius:var(--radius-sm);font-size:0.85rem; }
+.loading { text-align:center;padding:40px;color:var(--text-muted);display:none; }
+.loading.active { display:block; }
+.spinner-lg { display:inline-block;width:32px;height:32px;border:3px solid var(--border);border-top-color:var(--accent-blue);border-radius:50%;animation:spin 0.8s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
+.report-container { display:none; }
+.report-container.active { display:block; }
+.report-stats { display:flex;gap:16px;flex-wrap:wrap;margin-bottom:20px; }
+.stat-badge { background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius-md);padding:12px 18px;text-align:center; }
+.stat-badge .num { font-size:1.4rem;font-weight:700;color:var(--accent-green); }
+.stat-badge .lbl { font-size:0.7rem;color:var(--text-muted);margin-top:2px; }
+.report-text { background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px;margin-bottom:20px; }
+.report-text h3 { font-size:0.85rem;color:var(--text-muted);margin-bottom:12px;text-transform:uppercase;letter-spacing:0.5px; }
+.report-editor { width:100%;min-height:300px;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius-md);padding:16px;color:var(--text-primary);font-size:0.9rem;line-height:1.7;resize:vertical;font-family:inherit; }
+.report-editor:focus { outline:none;border-color:var(--accent-blue); }
+.photos-section { background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px;margin-bottom:20px; }
+.photos-section h3 { font-size:0.85rem;color:var(--text-muted);margin-bottom:12px;text-transform:uppercase;letter-spacing:0.5px; }
+.photos-grid { display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px; }
+.photo-card { position:relative;border-radius:var(--radius-md);overflow:hidden;cursor:pointer;border:2px solid transparent;transition:all 0.2s; }
+.photo-card.selected { border-color:var(--accent-green);box-shadow:0 0 8px rgba(37,211,102,0.3); }
+.photo-card img { width:100%;height:120px;object-fit:cover;display:block; }
+.photo-card .check { position:absolute;top:6px;right:6px;width:24px;height:24px;border-radius:50%;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;font-size:0.8rem; }
+.photo-card.selected .check { background:var(--accent-green); }
+.photo-card .photo-date { position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,0.7);color:#fff;font-size:0.65rem;padding:3px 6px;text-align:center; }
+.actions-bar { display:flex;gap:10px;flex-wrap:wrap;margin-top:20px;padding-top:16px;border-top:1px solid var(--border); }
+.btn-copy { background:var(--accent-green);color:#fff;border:none; }
+.btn-copy:hover { opacity:0.9; }
+@media(max-width:768px) { .form-row { flex-direction:column; } .photos-grid { grid-template-columns:repeat(auto-fill,minmax(100px,1fr)); } }
+</style>
+</head>
+<body>
+<header class="header">
+  <h1>📋 Report Generator</h1>
+  <div style="display:flex;gap:10px;align-items:center;">
+    <span style="padding:6px 14px;border-radius:20px;font-size:0.8rem;font-weight:600;${waStatus === 'ONLINE' ? 'background:rgba(37,211,102,0.15);color:#25D366;border:1px solid rgba(37,211,102,0.3);' : 'background:rgba(248,81,73,0.15);color:#f85149;border:1px solid rgba(248,81,73,0.3);'}">${waStatus}</span>
+    <a href="/" class="btn btn-back">⬅️ Dashboard</a>
+  </div>
+</header>
+
+<div class="container">
+  <div class="form-row">
+    <div class="form-group">
+      <label>Pilih Grup</label>
+      <select id="reportGroup">${groupOptions}</select>
+    </div>
+    <div class="form-group">
+      <label>Dari Tanggal</label>
+      <input type="date" id="reportStart">
+    </div>
+    <div class="form-group">
+      <label>Sampai Tanggal</label>
+      <input type="date" id="reportEnd">
+    </div>
+    <button class="btn btn-primary" id="btnGenerate" onclick="generateReport()">🤖 Generate Report</button>
+  </div>
+
+  <div class="loading" id="loadingState">
+    <div class="spinner-lg"></div>
+    <p style="margin-top:12px;">Sedang menganalisis chat dan media...</p>
+    <p style="font-size:0.8rem;color:var(--text-muted);">Biasanya 5-15 detik</p>
+  </div>
+
+  <div class="report-container" id="reportResult">
+    <div class="report-stats" id="reportStats"></div>
+
+    <div class="report-text">
+      <h3>📝 Rangkuman (bisa diedit)</h3>
+      <textarea class="report-editor" id="reportEditor" placeholder="Rangkuman akan muncul di sini..."></textarea>
+    </div>
+
+    <div class="photos-section">
+      <h3>📸 Highlight Foto (klik untuk pilih/batal)</h3>
+      <div class="photos-grid" id="photosGrid"></div>
+    </div>
+
+    <div class="actions-bar">
+      <button class="btn btn-copy" onclick="copyReport()">📋 Copy Rangkuman</button>
+      <button class="btn btn-back" onclick="copyWithPhotos()">📸 Copy + Daftar Foto</button>
+      <button class="btn btn-back" onclick="downloadReport()">💾 Download .txt</button>
+    </div>
+  </div>
+</div>
+
+<script>
+var selectedPhotos = [];
+
+async function generateReport() {
+  var group = document.getElementById("reportGroup").value;
+  var startDate = document.getElementById("reportStart").value;
+  var endDate = document.getElementById("reportEnd").value;
+
+  if (!group || !startDate) { alert("Pilih grup dan tanggal mulai!"); return; }
+  if (!endDate) endDate = startDate;
+
+  var btn = document.getElementById("btnGenerate");
+  btn.disabled = true;
+  btn.textContent = "Generating...";
+  document.getElementById("loadingState").classList.add("active");
+  document.getElementById("reportResult").classList.remove("active");
+
+  try {
+    var response = await fetch("/api/generate-report", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ group: group, startDate: startDate, endDate: endDate })
+    });
+    var data = await response.json();
+
+    if (!data.success) { alert("Gagal: " + (data.error || "Unknown")); return; }
+
+    // Stats
+    var statsHtml = "";
+    statsHtml += '<div class="stat-badge"><div class="num">' + data.stats.photos + '</div><div class="lbl">Foto</div></div>';
+    statsHtml += '<div class="stat-badge"><div class="num">' + data.stats.videos + '</div><div class="lbl">Video</div></div>';
+    statsHtml += '<div class="stat-badge"><div class="num">' + data.stats.documents + '</div><div class="lbl">Dokumen</div></div>';
+    statsHtml += '<div class="stat-badge"><div class="num">' + data.stats.chats + '</div><div class="lbl">Pesan</div></div>';
+    statsHtml += '<div class="stat-badge"><div class="num">' + data.stats.participants + '</div><div class="lbl">Partisipan</div></div>';
+    document.getElementById("reportStats").innerHTML = statsHtml;
+
+    // Report text
+    document.getElementById("reportEditor").value = data.report;
+
+    // Photos
+    selectedPhotos = data.highlights.map(function(p) { return p.src; });
+    var allPhotos = data.allPhotos || [];
+    var photosHtml = "";
+
+    data.highlights.forEach(function(p) {
+      var isSelected = selectedPhotos.indexOf(p.src) !== -1;
+      photosHtml += '<div class="photo-card selected" data-src="' + p.src + '" onclick="togglePhoto(this)"><img src="' + p.src + '" loading="lazy"><div class="check">✓</div><div class="photo-date">' + (p.date || "") + '</div></div>';
+    });
+
+    // Show remaining photos (not highlighted)
+    allPhotos.forEach(function(p) {
+      if (selectedPhotos.indexOf(p.src) === -1) {
+        photosHtml += '<div class="photo-card" data-src="' + p.src + '" onclick="togglePhoto(this)"><img src="' + p.src + '" loading="lazy"><div class="check">○</div><div class="photo-date">' + (p.name.substring(0, 8) || "") + '</div></div>';
+      }
+    });
+
+    document.getElementById("photosGrid").innerHTML = photosHtml;
+    document.getElementById("reportResult").classList.add("active");
+
+  } catch (err) {
+    alert("Error: " + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "🤖 Generate Report";
+    document.getElementById("loadingState").classList.remove("active");
+  }
+}
+
+function togglePhoto(el) {
+  var src = el.getAttribute("data-src");
+  el.classList.toggle("selected");
+  var check = el.querySelector(".check");
+  if (el.classList.contains("selected")) {
+    selectedPhotos.push(src);
+    check.textContent = "✓";
+  } else {
+    selectedPhotos = selectedPhotos.filter(function(s) { return s !== src; });
+    check.textContent = "○";
+  }
+}
+
+function copyReport() {
+  var text = document.getElementById("reportEditor").value;
+  navigator.clipboard.writeText(text).then(function() { alert("Rangkuman berhasil di-copy!"); });
+}
+
+function copyWithPhotos() {
+  var text = document.getElementById("reportEditor").value;
+  text += String.fromCharCode(10) + String.fromCharCode(10) + "--- FOTO TERPILIH ---" + String.fromCharCode(10);
+  selectedPhotos.forEach(function(src, idx) {
+    text += (idx + 1) + ". " + window.location.origin + src + String.fromCharCode(10);
+  });
+  navigator.clipboard.writeText(text).then(function() { alert("Rangkuman + daftar foto berhasil di-copy!"); });
+}
+
+function downloadReport() {
+  var text = document.getElementById("reportEditor").value;
+  var group = document.getElementById("reportGroup").value;
+  var date = document.getElementById("reportStart").value;
+  var blob = new Blob([text], { type: "text/plain" });
+  var a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "Report_" + group.replace(/[^a-zA-Z0-9]/g, "_") + "_" + date + ".txt";
+  a.click();
+}
+
+// Set default date to today
+var today = new Date().toISOString().split("T")[0];
+document.getElementById("reportStart").value = today;
+document.getElementById("reportEnd").value = today;
+</script>
 </body>
 </html>`);
 });
