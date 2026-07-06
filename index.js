@@ -950,7 +950,7 @@ async function generateChatSummary(groupName, targetDate) {
     // Format output
     var output = "";
     output += "━━━━━━━━━━━━━━━━━━━━" + NL;
-    output += "🤖 *RANGKUMAN CHAT AI*" + NL;
+    output += "📝 *RANGKUMAN CHAT*" + NL;
     output += "━━━━━━━━━━━━━━━━━━━━" + NL + NL;
     output += "👥 *Grup:* " + groupName + NL;
     output += "📅 *Tanggal:* " + targetDate + NL;
@@ -958,8 +958,7 @@ async function generateChatSummary(groupName, targetDate) {
     output += "👤 *Partisipan:* " + getUniqueCount(chats) + " orang" + NL + NL;
     output += "━━━━━━━━━━━━━━━━━━━━" + NL + NL;
     output += aiText + NL + NL;
-    output += "━━━━━━━━━━━━━━━━━━━━" + NL;
-    output += "_Powered by Gemini AI_";
+    output += "━━━━━━━━━━━━━━━━━━━━";
 
     return output;
 }
