@@ -535,7 +535,7 @@ async function sendMainMenuTelegram() {
                     [{ text: "📈 7D Chart" }, { text: "🚨 Logs Error" }, { text: "📊 Summary" }],
                     [{ text: "🛠 Services" }, { text: "🔌 Reconnect" }, { text: "🎨 QR Code" }],
                     [{ text: "🚫 Blacklist" }, { text: "🗑 Anti-Delete" }, { text: "🔍 Menu" }],
-                    [{ text: "📝 Rangkum Chat" }, { text: "📋 Report" }]
+                    [{ text: "📝 Rangkum Chat" }, { text: "📋 Report" }, { text: "🧠 Tanya AI" }]
                 ],
                 resize_keyboard: true,
                 one_time_keyboard: false
@@ -563,6 +563,8 @@ async function sendInlineMenu(chatId) {
         menuText += "🚫 *Blacklist* — Lihat/kelola grup yang diabaikan" + NL;
         menuText += "🗑 *Anti-Delete* — Lihat pesan yang ditarik" + NL;
         menuText += "📝 *Rangkum Chat* — Rangkum isi chat grup per tanggal" + NL;
+        menuText += "📋 *Report* — Buat laporan lengkap grup + statistik" + NL;
+        menuText += "🧠 *Tanya AI* — Tanya apapun tentang data grup kamu" + NL;
         menuText += NL + "━━━━━━━━━━━━━━━━━━━━";
 
         await axios.post("https://api.telegram.org/bot" + process.env.BOT_TOKEN + "/sendMessage", {
@@ -628,6 +630,10 @@ async function handleCommand(text, chatId) {
 
     if (text === "📋 Report" || text === "/report_help") {
         return replyTelegram(chatId, "📋 *Cara Buat Report:*" + String.fromCharCode(10) + String.fromCharCode(10) + "Ketik: `/report NamaGrup`" + String.fromCharCode(10) + String.fromCharCode(10) + "Opsi waktu:" + String.fromCharCode(10) + "`/report NamaGrup hari-ini`" + String.fromCharCode(10) + "`/report NamaGrup kemarin`" + String.fromCharCode(10) + "`/report NamaGrup minggu-ini`" + String.fromCharCode(10) + "`/report NamaGrup 2026-07-05`" + String.fromCharCode(10) + String.fromCharCode(10) + "Tanpa opsi = hari ini.");
+    }
+
+    if (text === "🧠 Tanya AI" || text === "/ask_help") {
+        return replyTelegram(chatId, "🧠 *AI Assistant*" + String.fromCharCode(10) + String.fromCharCode(10) + "Tanya apapun tentang data grup WA kamu:" + String.fromCharCode(10) + String.fromCharCode(10) + "`/ask berapa foto dari Podomoro minggu ini?`" + String.fromCharCode(10) + "`/ask siapa yang paling aktif?`" + String.fromCharCode(10) + "`/ask ada keputusan apa kemarin?`" + String.fromCharCode(10) + "`/ask grup mana yang error paling banyak?`" + String.fromCharCode(10) + "`/ask ada masalah apa hari ini?`" + String.fromCharCode(10) + String.fromCharCode(10) + "Atau pakai `/tanya` (sama aja).");
     }
 
     if (text === "/start" || text === "/menu") {
@@ -841,6 +847,22 @@ async function handleCommand(text, chatId) {
         msg += "_Total tercatat: " + logs.length + " pesan_" + NL;
         msg += "━━━━━━━━━━━━━━━━━━━━";
         return replyTelegram(chatId, msg);
+    }
+
+    // AI ASSISTANT - /ask command
+    if (text.startsWith("/ask ") || text.startsWith("/tanya ")) {
+        var question = text.replace(/^\/(ask|tanya) /, "").trim();
+        if (!question) return replyTelegram(chatId, "Format: `/ask pertanyaan kamu`" + NL + "Contoh: `/ask berapa foto dari Podomoro minggu ini?`");
+
+        await replyTelegram(chatId, "🧠 Memproses pertanyaan...");
+
+        try {
+            var answer = await askAIAssistant(question);
+            await replyTelegram(chatId, answer);
+        } catch (err) {
+            await replyTelegram(chatId, "❌ Gagal: " + err.message);
+        }
+        return;
     }
 
     // REPORT COMMAND - laporan ringkas + statistik (buat jawab boss)
@@ -1111,6 +1133,148 @@ async function generateReport(groupName, startDate, endDate) {
     output += "💬 " + chats.length + " pesan | 👤 " + uniqueSenders + " orang" + NL;
     output += "📷 " + photoCount + " foto | 🎬 " + videoCount + " video | 📎 " + docCount + " dok" + NL;
     output += NL + "━━━━━━━━━━━━━━━━━━━━" + NL + NL;
+    output += aiText + NL + NL;
+    output += "━━━━━━━━━━━━━━━━━━━━";
+
+    return output;
+}
+
+
+// ==========================================
+// AI ASSISTANT - Jawab pertanyaan apapun
+// ==========================================
+
+async function askAIAssistant(question) {
+    var NL = String.fromCharCode(10);
+    var GEMINI_KEY = process.env.GEMINI_API_KEY;
+    if (!GEMINI_KEY) throw new Error("GEMINI_API_KEY belum diset di .env");
+
+    // Kumpulkan konteks data untuk AI
+    var context = "";
+
+    // 1. Daftar grup
+    var mediaDir = path.join(__dirname, "WA-MEDIA");
+    var grupList = [];
+    if (fs.existsSync(mediaDir)) {
+        grupList = fs.readdirSync(mediaDir).filter(function(item) {
+            return fs.statSync(path.join(mediaDir, item)).isDirectory();
+        });
+    }
+    context += "DAFTAR GRUP (" + grupList.length + "):" + NL;
+    context += grupList.join(", ") + NL + NL;
+
+    // 2. Statistik media
+    var db = [];
+    try { db = fs.readJsonSync(MEDIA_DB_FILE); } catch (e) {}
+    var today = moment().format("YYYY-MM-DD");
+    var todayMedia = db.filter(function(x) { return x.time && x.time.startsWith(today); });
+
+    context += "STATISTIK MEDIA:" + NL;
+    context += "- Total semua: " + db.length + " file" + NL;
+    context += "- Hari ini: " + todayMedia.length + " file" + NL;
+    context += "- Images: " + db.filter(function(x){return x.type==="images";}).length + NL;
+    context += "- Videos: " + db.filter(function(x){return x.type==="videos";}).length + NL;
+    context += "- Documents: " + db.filter(function(x){return x.type==="documents";}).length + NL + NL;
+
+    // 3. Media 7 hari terakhir per grup
+    context += "MEDIA 7 HARI TERAKHIR PER GRUP:" + NL;
+    var last7days = moment().subtract(7, "days").format("YYYY-MM-DD");
+    var recentByGrup = {};
+    db.forEach(function(x) {
+        if (x.time && x.time.slice(0, 10) >= last7days) {
+            recentByGrup[x.group] = (recentByGrup[x.group] || 0) + 1;
+        }
+    });
+    Object.keys(recentByGrup).forEach(function(g) {
+        context += "- " + g + ": " + recentByGrup[g] + " file" + NL;
+    });
+    context += NL;
+
+    // 4. Top senders minggu ini
+    context += "TOP PENGIRIM 7 HARI:" + NL;
+    var senderCount = {};
+    db.forEach(function(x) {
+        if (x.time && x.time.slice(0, 10) >= last7days) {
+            var key = (x.sender || "Unknown") + " (" + (x.number || "") + ")";
+            senderCount[key] = (senderCount[key] || 0) + 1;
+        }
+    });
+    var topSenders = Object.entries(senderCount).sort(function(a, b) { return b[1] - a[1]; }).slice(0, 10);
+    topSenders.forEach(function(s) { context += "- " + s[0] + ": " + s[1] + " file" + NL; });
+    context += NL;
+
+    // 5. Error/failed terakhir
+    var failed = [];
+    try { failed = fs.readJsonSync(FAILED_FILE); } catch (e) {}
+    context += "ERROR TERAKHIR (" + failed.length + " total):" + NL;
+    failed.slice(0, 5).forEach(function(f) {
+        context += "- [" + f.time + "] " + f.group + ": " + f.error + NL;
+    });
+    context += NL;
+
+    // 6. Chat history terbaru (ambil dari semua grup, 50 pesan terakhir)
+    context += "CHAT TERBARU (50 pesan terakhir dari semua grup):" + NL;
+    var allChats = [];
+    grupList.forEach(function(g) {
+        var logFile = path.join(mediaDir, g, "chat_history.jsonl");
+        if (fs.existsSync(logFile)) {
+            var lines = fs.readFileSync(logFile, "utf8").trim().split(String.fromCharCode(10));
+            var recent = lines.slice(-20); // ambil 20 terakhir per grup
+            recent.forEach(function(line) {
+                try {
+                    var chat = JSON.parse(line);
+                    chat._grup = g;
+                    allChats.push(chat);
+                } catch (e) {}
+            });
+        }
+    });
+    // Sort by time, ambil 50 terbaru
+    allChats.sort(function(a, b) { return (b.time || "").localeCompare(a.time || ""); });
+    allChats.slice(0, 50).forEach(function(c) {
+        context += "[" + c.time + "] [" + c._grup + "] " + c.sender + ": " + c.message + NL;
+    });
+
+    // Batasi context
+    if (context.length > 14000) {
+        context = context.substring(0, 14000);
+    }
+
+    // 7. Status bot
+    var botStatus = { connected: false };
+    try { botStatus = fs.readJsonSync(STATUS_FILE); } catch (e) {}
+    var stats = loadStats();
+
+    // Prompt
+    var prompt = "Kamu adalah AI Assistant untuk WA Media Bot. Kamu punya akses ke semua data media dan chat dari grup-grup WhatsApp." + NL;
+    prompt += "Jawab pertanyaan user dengan bahasa Indonesia yang natural dan friendly." + NL;
+    prompt += "Kalau ditanya sesuatu yang tidak ada datanya, bilang saja tidak tersedia." + NL;
+    prompt += "Jawab SINGKAT dan LANGSUNG — jangan bertele-tele." + NL + NL;
+    prompt += "STATUS BOT: " + (botStatus.connected ? "Online" : "Offline") + NL;
+    prompt += "TOTAL SAVED: " + stats.saved + " | TOTAL FAILED: " + stats.failed + NL + NL;
+    prompt += "=== DATA KONTEKS ===" + NL;
+    prompt += context + NL + NL;
+    prompt += "=== PERTANYAAN USER ===" + NL;
+    prompt += question;
+
+    // Panggil Gemini
+    var geminiUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=" + GEMINI_KEY;
+    var aiResponse = await axios.post(geminiUrl, {
+        contents: [{ parts: [{ text: prompt }] }]
+    }, { headers: { "Content-Type": "application/json" }, timeout: 30000 });
+
+    var aiText = "";
+    if (aiResponse.data.candidates && aiResponse.data.candidates[0] && aiResponse.data.candidates[0].content) {
+        aiText = aiResponse.data.candidates[0].content.parts[0].text || "";
+    }
+    if (!aiText) throw new Error("AI tidak merespon");
+
+    // Format output
+    var output = "";
+    output += "━━━━━━━━━━━━━━━━━━━━" + NL;
+    output += "🧠 *AI ASSISTANT*" + NL;
+    output += "━━━━━━━━━━━━━━━━━━━━" + NL + NL;
+    output += "❓ _" + question + "_" + NL + NL;
     output += aiText + NL + NL;
     output += "━━━━━━━━━━━━━━━━━━━━";
 
