@@ -99,12 +99,16 @@ function getSenderMediaCount(number) {
 async function getFolderSize(dir) {
   let size = 0;
   async function walk(folder) {
-    try { await fsPromises.access(dir); } catch { return; }
-    const items = await fsPromises.readdir(dir, { withFileTypes: true });
+    try { await fsPromises.access(folder); } catch { return; }
+    const items = await fsPromises.readdir(folder, { withFileTypes: true });
     for (const item of items) {
-      const fullPath = path.join(dir, item.name);
+      const fullPath = path.join(folder, item.name);
       if (item.isDirectory()) await walk(fullPath);
-      else { const stat = await fsPromises.stat(fullPath); size += stat.size; }
+      else {
+        if (item.name === "chat_history.jsonl") continue;
+        const stat = await fsPromises.stat(fullPath);
+        size += stat.size;
+      }
     }
   }
   await walk(dir);
@@ -565,7 +569,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxyge
       </div>
       <div class="success-rate">
         <div style="display:flex; justify-content:space-between; font-size:0.85rem;"><span>💾 Storage</span><strong>${storage} GB</strong></div>
-        <div style="display:flex; justify-content:space-between; font-size:0.85rem; margin-top:8px;"><span>📥 Saved / ❌ Failed</span>strong>${statsCounter.saved}</strong>/<strong>${statsCounter.failed}</strong></div>
+        <div style="display:flex; justify-content:space-between; font-size:0.85rem; margin-top:8px;"><span>📥 Saved / ❌ Failed</span><span><strong>${statsCounter.saved}</strong> / <strong style="color:var(--accent-red)">${statsCounter.failed}</strong></span></div>
         <div class="success-bar-bg"><div class="success-bar-fill" style="width:${(statsCounter.saved / Math.max(1, statsCounter.saved + statsCounter.failed)) * 100}%"></div></div>
       </div>
     </div>
@@ -613,7 +617,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxyge
               <div class="group-avatar">${isPinned ? '📌' : '👥'}</div>
               <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${g}</span>
             </a>
-            <button class="btn-pin ${isPinned ? 'pinned' : ''}" onclick="togglePinGroup('${g}', ${!isPinned})" title="${isPinned ? 'Unpin Grup' : 'Pin Grup'}">📌</button>
+            <button class="btn-pin ${isPinned ? 'pinned' : ''}" onclick="event.preventDefault(); event.stopPropagation(); togglePinGroup('${g.replace(/'/g, "\\'")}', ${!isPinned})" title="${isPinned ? 'Unpin Grup' : 'Pin Grup'}">📌</button>
           </div>`;
         }).join('')}
       </div>
