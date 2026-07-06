@@ -22,6 +22,7 @@ const IGNORED_FILE = path.join(__dirname, "ignored-groups.json");
 
 let sock;
 global.muteTelegramAlertsUntil = null;
+var isReconnecting = false;
 
 // GEMINI API TRACKER
 var geminiTracker = { success: 0, failed: 0, lastStatus: "unknown", lastUsed: null, lastModel: null, lastError: null };
@@ -451,15 +452,19 @@ async function start() {
         if (connection === "open") {
             saveStatus({ connected: true, qr: null });
             console.log("CONNECTED");
-            await sendMainMenuTelegram();
+            if (!isReconnecting) {
+                await sendMainMenuTelegram();
+            }
+            isReconnecting = false;
         }
         if (connection === "close") {
             saveStatus({ connected: false });
             console.log("CONNECTION CLOSED");
 
             const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
-            if (shouldReconnect) {
+            if (shouldReconnect && !isReconnecting) {
                 console.log("RECONNECTING IN 5 SECONDS...");
+                isReconnecting = true;
                 setTimeout(function() { start(); }, 5000);
             }
         }
@@ -975,8 +980,9 @@ async function handleCommand(text, chatId) {
 
     if (text === "/reconnect") {
         await replyTelegram(chatId, "🔌 Reconnecting...");
+        isReconnecting = true;
         if (sock) { try { sock.end(); } catch (e) {} }
-        setTimeout(function() { start(); }, 2000);
+        setTimeout(function() { start(); }, 3000);
         return;
     }
 
