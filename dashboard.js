@@ -676,16 +676,16 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxyge
       ${gallery.length === 0 ? `<div class="empty-state" style="grid-column: 1 / -1;"><div class="icon">📭</div><p>Tidak ada media</p></div>` : 
       gallery.map((f) => {
         const item = helperFormatCardData(f, selectedGroup, MEDIA_DIR);
-        const safeSrc = item.src.replace(/'/g, "\\\\'");
-        const safeName = item.name.replace(/'/g, "\\\\'");
+        const safeSrc = item.src.replace(/'/g, "\\'");
+        const safeName = item.name.replace(/'/g, "\\'");
         const safeType = item.type;
         
         const hoverCardHTML = '<div class="hover-sender-container">👤 <u>' + item.sender + '</u><div class="sender-hover-card"><div class="hover-card-avatar">👤</div><div class="hover-card-name">' + item.sender + '</div><div class="hover-card-num">@' + item.number + '</div><div class="hover-card-count">📦 Shared: ' + item.totalMediaContributed + ' File</div></div></div>';
 
         if (item.isPlayable) {
-          return '<div class="gallery-item" data-src="' + item.src + '" data-type="' + item.type + '" data-name="' + item.name.replace(/"/g, '&quot;') + '" onclick="openLightbox(\\\'' + safeSrc + '\\\', \\\'' + safeType + '\\\', \\\'' + safeName + '\\\')" style="cursor:pointer;"><div class="media-preview">' + (item.type === 'image' ? '<img src="' + item.src + '" loading="lazy">' : '<span class="icon-placeholder">' + (item.type === 'video' ? '🎥' : '🎵') + '</span>') + '</div><div class="card-info" onclick="event.stopPropagation()"><div class="card-filename" title="' + item.name + '">' + item.name + '</div><div class="card-row-details"><span class="badge-type badge-' + item.type + '">' + item.type + '</span><span>' + hoverCardHTML + '</span></div><div class="card-row-details" style="margin-top:2px; color:var(--text-muted);"><span>💾 ' + item.size + '</span><span>🕒 ' + item.time + '</span></div></div></div>';
+          return '<div class="gallery-item" data-src="' + item.src + '" data-type="' + item.type + '" data-name="' + item.name.replace(/"/g, '&quot;') + '" onclick="openLightbox(\'' + safeSrc + '\', \'' + safeType + '\', \'' + safeName + '\')" style="cursor:pointer;"><div class="media-preview">' + (item.type === 'image' ? '<img src="' + item.src + '" loading="lazy">' : '<span class="icon-placeholder">' + (item.type === 'video' ? '🎥' : '🎵') + '</span>') + '</div><div class="card-info" onclick="event.stopPropagation()"><div class="card-filename" title="' + item.name + '">' + item.name + '</div><div class="card-row-details"><span class="badge-type badge-' + item.type + '">' + item.type + '</span><span>' + hoverCardHTML + '</span></div><div class="card-row-details" style="margin-top:2px; color:var(--text-muted);"><span>💾 ' + item.size + '</span><span>🕒 ' + item.time + '</span></div></div></div>';
         } else {
-          return '<div class="gallery-item" data-src="' + item.src + '" data-type="' + item.type + '" data-name="' + item.name.replace(/"/g, '&quot;') + '" onclick="window.open(\\\'' + safeSrc + '\\\', \\\'_blank\\\')" style="cursor:pointer;"><div class="media-preview"><span class="icon-placeholder">📄</span></div><div class="card-info" onclick="event.stopPropagation()"><div class="card-filename" title="' + item.name + '">' + item.name + '</div><div class="card-row-details"><span class="badge-type badge-doc">Dokumen</span><span>' + hoverCardHTML + '</span></div><div class="card-row-details" style="margin-top:2px; color:var(--text-muted);"><span>💾 ' + item.size + '</span><span>🕒 ' + item.time + '</span></div></div></div>';
+          return '<div class="gallery-item" data-src="' + item.src + '" data-type="' + item.type + '" data-name="' + item.name.replace(/"/g, '&quot;') + '" onclick="window.open(\'' + safeSrc + '\', \'_blank\')" style="cursor:pointer;"><div class="media-preview"><span class="icon-placeholder">📄</span></div><div class="card-info" onclick="event.stopPropagation()"><div class="card-filename" title="' + item.name + '">' + item.name + '</div><div class="card-row-details"><span class="badge-type badge-doc">Dokumen</span><span>' + hoverCardHTML + '</span></div><div class="card-row-details" style="margin-top:2px; color:var(--text-muted);"><span>💾 ' + item.size + '</span><span>🕒 ' + item.time + '</span></div></div></div>';
         }
       }).join('')}
     </div>
@@ -712,7 +712,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxyge
           </thead>
           <tbody>
             ${failedList.map(f => {
-              const resDownloadBtn = f.messageId ? '<button class="btn btn-ghost btn-sm" style="color:var(--accent-blue); border-color:var(--accent-blue); padding:4px 8px; font-size:0.75rem;" onclick="requestReDownload(\'' + f.messageId + '\', this)">Unduh Ulang</button>' : '<span style="color:var(--text-muted); font-size:0.7rem;">No MsgID</span>';
+              const safeMsgId = (f.messageId || '').replace(/'/g, "\\'");
+              const resDownloadBtn = f.messageId ? '<button class="btn btn-ghost btn-sm" style="color:var(--accent-blue); border-color:var(--accent-blue); padding:4px 8px; font-size:0.75rem;" onclick="event.preventDefault(); event.stopPropagation(); requestReDownload(\'' + safeMsgId + '\', this)">Unduh Ulang</button>' : '<span style="color:var(--text-muted); font-size:0.7rem;">No MsgID</span>';
               return '<tr><td>' + f.time + '</td><td><strong>' + f.group + '</strong></td><td>' + f.sender + '</td><td><span class="badge-type badge-doc" style="background:rgba(248,81,73,0.1); color:var(--accent-red); border:1px solid rgba(248,81,73,0.2)">' + f.type + '</span></td><td style="max-width:250px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="' + f.error + '"><code>' + f.error + '</code></td><td style="text-align:center;">' + resDownloadBtn + '</td></tr>';
             }).join('')}
           </tbody>
@@ -827,14 +828,13 @@ function refreshLightboxQueue() {
 
 refreshLightboxQueue();
 
-fnOpenLightbox = function(src, type, name) {
+function openLightbox(src, type, name) {
   refreshLightboxQueue();
   currentIndex = images.findIndex(img => img.src === src); 
-  if (currentIndex === -1) { currentIndex = 0; images = [{src, type, name}]; }
+  if (currentIndex === -1) { currentIndex = 0; images = [{src: src, type: type, name: name}]; }
   renderCurrentMedia();
   document.getElementById("lightbox").classList.add("active");
 }
-window.openLightbox = fnOpenLightbox;
 
 function renderCurrentMedia() {
   const item = images[currentIndex];
