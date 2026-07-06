@@ -265,8 +265,8 @@ app.get("/api/events", (req, res) => {
 });
 
 app.get("/api/media", async (req, res) => {
-  const group = req.query.group; const page = parseInt(req.query.page) || 1; const type = req.query.type || "all";
-  const date = req.query.date || null;
+  const group = (req.query.group || "").trim(); const page = parseInt(req.query.page) || 1; const type = req.query.type || "all";
+  const date = (req.query.date || "").trim() || null;
   if (!group) return res.json({ data: [], hasMore: false });
 
   // Get ALL files for this group (with date filter), then filter by type, then paginate
@@ -378,7 +378,7 @@ app.post("/api/ignore-group", (req, res) => {
 });
 
 app.get("/api/export-chat", async (req, res) => {
-  const group = req.query.group;
+  const group = (req.query.group || "").trim();
   const startDate = req.query.start_date;
   const endDate = req.query.end_date;
   if (!group) return res.status(400).send("Nama grup tidak boleh kosong");
@@ -421,7 +421,7 @@ app.get("/api/export-chat", async (req, res) => {
 app.get("/", async (req, res) => {
   const keyword = (req.query.search || "").toLowerCase().trim();
   const targetDate = req.query.date || null;
-  const groups = await getGroups(); const selectedGroup = req.query.group || groups[0];
+  const groups = await getGroups(); const selectedGroup = (req.query.group || groups[0] || "").trim();
   const pinnedList = loadPinnedGroups();
   let groupStats = { images: 0, videos: 0, documents: 0 }; let gallery = []; let hasMore = false;
 
