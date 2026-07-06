@@ -1233,32 +1233,103 @@ async function askAIAssistant(question) {
     });
     context += NL;
 
-    // 6. Chat history terbaru (ambil dari semua grup, 50 pesan terakhir)
-    context += "CHAT TERBARU (50 pesan terakhir dari semua grup):" + NL;
-    var allChats = [];
+    // 6. Chat history - SMART LOADING
+    // Deteksi apakah user tanya soal grup/tanggal tertentu
+    var questionLower = question.toLowerCase();
+    var targetGrup = null;
+    var targetDate = null;
+
+    // Cari nama grup di pertanyaan
     grupList.forEach(function(g) {
-        var logFile = path.join(mediaDir, g, "chat_history.jsonl");
-        if (fs.existsSync(logFile)) {
-            var lines = fs.readFileSync(logFile, "utf8").trim().split(String.fromCharCode(10));
-            var recent = lines.slice(-20); // ambil 20 terakhir per grup
-            recent.forEach(function(line) {
-                try {
-                    var chat = JSON.parse(line);
-                    chat._grup = g;
-                    allChats.push(chat);
-                } catch (e) {}
-            });
+        if (questionLower.indexOf(g.toLowerCase()) !== -1) {
+            targetGrup = g;
         }
-    });
-    // Sort by time, ambil 50 terbaru
-    allChats.sort(function(a, b) { return (b.time || "").localeCompare(a.time || ""); });
-    allChats.slice(0, 50).forEach(function(c) {
-        context += "[" + c.time + "] [" + c._grup + "] " + c.sender + ": " + c.message + NL;
+        // Cek partial match (misal "bandung" cocok ke "Podomoro Park Bandung ")
+        var words = g.toLowerCase().split(" ");
+        words.forEach(function(w) {
+            if (w.length > 4 && questionLower.indexOf(w) !== -1 && !targetGrup) {
+                targetGrup = g;
+            }
+        });
     });
 
-    // Batasi context
-    if (context.length > 14000) {
-        context = context.substring(0, 14000);
+    // Deteksi tanggal dari pertanyaan
+    if (questionLower.indexOf("hari ini") !== -1 || questionLower.indexOf("today") !== -1) {
+        targetDate = moment().format("YYYY-MM-DD");
+    } else if (questionLower.indexOf("kemarin") !== -1 || questionLower.indexOf("kemaren") !== -1 || questionLower.indexOf("yesterday") !== -1) {
+        targetDate = moment().subtract(1, "days").format("YYYY-MM-DD");
+    } else if (questionLower.indexOf("1 hari lalu") !== -1 || questionLower.indexOf("1hari lalu") !== -1) {
+        targetDate = moment().subtract(1, "days").format("YYYY-MM-DD");
+    } else if (questionLower.indexOf("2 hari lalu") !== -1 || questionLower.indexOf("2hari lalu") !== -1) {
+        targetDate = moment().subtract(2, "days").format("YYYY-MM-DD");
+    } else if (questionLower.indexOf("3 hari lalu") !== -1 || questionLower.indexOf("3hari lalu") !== -1) {
+        targetDate = moment().subtract(3, "days").format("YYYY-MM-DD");
+    } else if (questionLower.indexOf("minggu ini") !== -1) {
+        targetDate = moment().subtract(7, "days").format("YYYY-MM-DD");
+    }
+    // Cek format tanggal eksplisit
+    var dateMatch = question.match(/\d{4}-\d{2}-\d{2}/);
+    if (dateMatch) targetDate = dateMatch[0];
+
+    // Load chat berdasarkan konteks
+    if (targetGrup) {
+        // Load FULL chat dari grup tertentu
+        var logFile = path.join(mediaDir, targetGrup, "chat_history.jsonl");
+        if (fs.existsSync(logFile)) {
+            var lines = fs.readFileSync(logFile, "utf8").trim().split(String.fromCharCode(10));
+            var filteredChats = [];
+            lines.forEach(function(line) {
+                try {
+                    var chat = JSON.parse(line);
+                    if (targetDate) {
+                        // Filter by date (support range for "minggu ini")
+                        var chatDate = (chat.time || "").slice(0, 10);
+                        if (chatDate >= targetDate && chatDate <= moment().format("YYYY-MM-DD")) {
+                            filteredChats.push(chat);
+                        }
+                    } else {
+                        filteredChats.push(chat);
+                    }
+                } catch (e) {}
+            });
+
+            // Ambil max 200 pesan (atau semua kalau <200)
+            var chatSlice = filteredChats.slice(-200);
+            context += "CHAT GRUP " + targetGrup + (targetDate ? " (dari " + targetDate + ")" : " (terbaru)") + " - " + chatSlice.length + " pesan:" + NL;
+            chatSlice.forEach(function(c) {
+                context += "[" + c.time + "] " + c.sender + ": " + c.message + NL;
+            });
+        } else {
+            context += "CHAT GRUP " + targetGrup + ": belum ada riwayat chat." + NL;
+        }
+    } else {
+        // Tidak sebut grup spesifik - ambil 50 terbaru dari semua grup
+        context += "CHAT TERBARU (semua grup):" + NL;
+        var allChats = [];
+        grupList.forEach(function(g) {
+            var logFile = path.join(mediaDir, g, "chat_history.jsonl");
+            if (fs.existsSync(logFile)) {
+                var lines = fs.readFileSync(logFile, "utf8").trim().split(String.fromCharCode(10));
+                var recent = lines.slice(-15);
+                recent.forEach(function(line) {
+                    try {
+                        var chat = JSON.parse(line);
+                        chat._grup = g;
+                        allChats.push(chat);
+                    } catch (e) {}
+                });
+            }
+        });
+        allChats.sort(function(a, b) { return (b.time || "").localeCompare(a.time || ""); });
+        allChats.slice(0, 50).forEach(function(c) {
+            context += "[" + c.time + "] [" + c._grup + "] " + c.sender + ": " + c.message + NL;
+        });
+    }
+    context += NL;
+
+    // Batasi context (Gemini 2.5 flash supports up to 1M tokens, but keep reasonable)
+    if (context.length > 25000) {
+        context = context.substring(context.length - 25000);
     }
 
     // 7. Status bot
