@@ -733,12 +733,11 @@ async function sendInlineMenu(chatId) {
         menuText += "📅 *Hari Ini* — Detail aktivitas hari ini (grup + pengirim)" + NL;
         menuText += "📈 *7D Chart* — Grafik aktivitas 7 hari terakhir" + NL;
         menuText += "🚨 *Logs Error* — Lihat 5 error terakhir" + NL;
-        menuText += "📊 *Summary* — Kirim laporan harian sekarang" + NL;
+        menuText += "📊 *Summary* — Kirim laporan harian lengkap" + NL;
         menuText += "🔌 *Reconnect* — Putuskan & sambung ulang WA" + NL;
-        menuText += "🎨 *QR Code* — Cek ketersediaan QR login" + NL;
         menuText += "🚫 *Blacklist* — Lihat/kelola grup yang diabaikan" + NL;
         menuText += "🗑 *Anti-Delete* — Lihat pesan yang ditarik" + NL;
-        menuText += "📝 *Rangkum Chat* — Rangkum isi chat grup per tanggal" + NL;
+        menuText += "📝 *Rangkum* — Rangkum isi chat grup per tanggal" + NL;
         menuText += "📋 *Report* — Buat laporan lengkap grup + statistik" + NL;
         menuText += "🧠 *Tanya AI* — Tanya apapun tentang data grup kamu" + NL;
         menuText += NL + "━━━━━━━━━━━━━━━━━━━━";
@@ -749,12 +748,10 @@ async function sendInlineMenu(chatId) {
             parse_mode: "Markdown",
             reply_markup: {
                 inline_keyboard: [
-                    [{ text: "📊 Stats", callback_data: "/stats" }, { text: "🟢 Status", callback_data: "/status" }],
-                    [{ text: "📈 7D Chart", callback_data: "/chart" }, { text: "📋 Health", callback_data: "/health" }],
-                    [{ text: "🛠 Services", callback_data: "/services" }, { text: "🚨 Logs Error", callback_data: "/viewlogs" }],
-                    [{ text: "📊 Summary Now", callback_data: "/summary_now" }, { text: "🔌 Reconnect", callback_data: "/reconnect" }],
-                    [{ text: "🚫 Blacklist", callback_data: "/blacklist" }, { text: "🗑 Anti-Delete", callback_data: "/antidelete" }],
-                    [{ text: "📝 Rangkum Chat", callback_data: "/rangkum_help" }]
+                    [{ text: "📊 Overview", callback_data: "/overview" }, { text: "🛠 Sistem", callback_data: "/sistem" }, { text: "📅 Hari Ini", callback_data: "/today" }],
+                    [{ text: "📈 7D Chart", callback_data: "/chart" }, { text: "🚨 Logs Error", callback_data: "/viewlogs" }, { text: "📊 Summary", callback_data: "/summary_now" }],
+                    [{ text: "🔌 Reconnect", callback_data: "/reconnect" }, { text: "🚫 Blacklist", callback_data: "/blacklist" }, { text: "🗑 Anti-Delete", callback_data: "/antidelete" }],
+                    [{ text: "📝 Rangkum", callback_data: "/rangkum_help" }, { text: "📋 Report", callback_data: "/report_help" }, { text: "🧠 Tanya AI", callback_data: "/ask_help" }]
                 ]
             }
         });
