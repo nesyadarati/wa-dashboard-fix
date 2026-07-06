@@ -562,7 +562,7 @@ async function sendInlineMenu(chatId) {
         menuText += "🎨 *QR Code* — Cek ketersediaan QR login" + NL;
         menuText += "🚫 *Blacklist* — Lihat/kelola grup yang diabaikan" + NL;
         menuText += "🗑 *Anti-Delete* — Lihat pesan yang ditarik" + NL;
-        menuText += "📝 *Rangkum Chat* — Rangkum isi chat grup pakai AI" + NL;
+        menuText += "📝 *Rangkum Chat* — Rangkum isi chat grup per tanggal" + NL;
         menuText += NL + "━━━━━━━━━━━━━━━━━━━━";
 
         await axios.post("https://api.telegram.org/bot" + process.env.BOT_TOKEN + "/sendMessage", {
@@ -575,7 +575,8 @@ async function sendInlineMenu(chatId) {
                     [{ text: "📈 7D Chart", callback_data: "/chart" }, { text: "📋 Health", callback_data: "/health" }],
                     [{ text: "🛠 Services", callback_data: "/services" }, { text: "🚨 Logs Error", callback_data: "/viewlogs" }],
                     [{ text: "📊 Summary Now", callback_data: "/summary_now" }, { text: "🔌 Reconnect", callback_data: "/reconnect" }],
-                    [{ text: "🚫 Blacklist", callback_data: "/blacklist" }, { text: "🗑 Anti-Delete", callback_data: "/antidelete" }]
+                    [{ text: "🚫 Blacklist", callback_data: "/blacklist" }, { text: "🗑 Anti-Delete", callback_data: "/antidelete" }],
+                    [{ text: "📝 Rangkum Chat", callback_data: "/rangkum_help" }]
                 ]
             }
         });
@@ -621,8 +622,8 @@ async function handleCommand(text, chatId) {
     if (text === "🚫 Blacklist") text = "/blacklist";
     if (text === "🗑 Anti-Delete") text = "/antidelete";
     if (text === "🔍 Menu") text = "/menu";
-    if (text === "📝 Rangkum Chat") {
-        return replyTelegram(chatId, "📝 *Cara Rangkum Chat:*" + String.fromCharCode(10) + String.fromCharCode(10) + "Ketik: `/rangkum NamaGrup`" + String.fromCharCode(10) + "Contoh: `/rangkum Podomoro Park Bandung`" + String.fromCharCode(10) + String.fromCharCode(10) + "Untuk tanggal tertentu:" + String.fromCharCode(10) + "`/rangkum Podomoro Park Bandung 2026-07-05`" + String.fromCharCode(10) + String.fromCharCode(10) + "Tanpa tanggal = rangkum hari ini.");
+    if (text === "📝 Rangkum Chat" || text === "/rangkum_help") {
+        return replyTelegram(chatId, "📝 *Cara Rangkum Chat:*" + String.fromCharCode(10) + String.fromCharCode(10) + "Ketik: `/rangkum NamaGrup`" + String.fromCharCode(10) + "Contoh: `/rangkum Podomoro Park Bandung `" + String.fromCharCode(10) + String.fromCharCode(10) + "Untuk tanggal tertentu:" + String.fromCharCode(10) + "`/rangkum Podomoro Park Bandung  2026-07-05`" + String.fromCharCode(10) + String.fromCharCode(10) + "Tanpa tanggal = rangkum hari ini.");
     }
 
     if (text === "/start" || text === "/menu") {
