@@ -592,6 +592,19 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxyge
 
 @media (max-width: 768px) { .layout { grid-template-columns: 1fr; padding: 12px; } .sidebar { order: 2; } .main-content { order: 1; } .stats-grid { grid-template-columns: repeat(4, 1fr); gap: 8px; } .gallery { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); } .header { flex-wrap: wrap; gap: 10px; padding: 12px 16px; } .header-actions { flex-wrap: wrap; gap: 6px; } .toolbar { flex-direction: column; align-items: stretch; } .filter-tabs { overflow-x: auto; } .group-stats { flex-wrap: wrap; gap: 10px; } }
 
+/* LIVE ACTIVITY FEED */
+.feed-item { display:flex; align-items:flex-start; gap:8px; padding:6px 8px; border-radius:6px; background:var(--bg-tertiary); border:1px solid var(--border); animation:feedSlideIn 0.3s ease; }
+@keyframes feedSlideIn { from { opacity:0; transform:translateY(-8px); } to { opacity:1; transform:translateY(0); } }
+.feed-dot { width:8px; height:8px; border-radius:50%; background:var(--accent-green); margin-top:4px; flex-shrink:0; animation:feedPulse 2s infinite; }
+@keyframes feedPulse { 0%,100%{opacity:1;} 50%{opacity:0.4;} }
+.feed-content { flex:1; line-height:1.4; }
+.feed-sender { font-weight:600; color:var(--accent-blue); }
+.feed-time { font-size:0.65rem; color:var(--text-muted); }
+
+/* QUICK FILTER CHIPS */
+.chip-sender { display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:12px; background:rgba(88,166,255,0.1); border:1px solid rgba(88,166,255,0.3); color:var(--accent-blue); font-size:0.68rem; cursor:pointer; transition:all 0.2s; text-decoration:none; }
+.chip-sender:hover { background:rgba(88,166,255,0.25); transform:scale(1.05); }
+
 /* DARK/LIGHT THEME SUPPORT */
 body.light-theme { --bg-primary: #ffffff; --bg-secondary: #f6f8fa; --bg-tertiary: #f0f2f5; --bg-hover: #e8eaed; --border: #d0d7de; --text-primary: #1f2328; --text-secondary: #656d76; --text-muted: #8b949e; --accent-green: #1a7f37; --accent-blue: #0969da; --accent-red: #cf222e; --accent-orange: #9a6700; --accent-purple: #8250df; --shadow: 0 4px 12px rgba(0,0,0,0.1); }
 .theme-toggle { position: fixed; bottom: 24px; left: 24px; width: 44px; height: 44px; border-radius: 50%; background: var(--bg-secondary); border: 1px solid var(--border); color: var(--text-primary); cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; z-index: 5000; box-shadow: var(--shadow); }
@@ -699,6 +712,14 @@ body.light-theme { --bg-primary: #ffffff; --bg-secondary: #f6f8fa; --bg-tertiary
         }).join('')}
       </div>
     </div>
+
+    <!-- LIVE ACTIVITY FEED -->
+    <div class="card">
+      <div class="card-title">⚡ Aktivitas Terbaru</div>
+      <div class="activity-feed" id="activityFeed" style="max-height:200px; overflow-y:auto; display:flex; flex-direction:column; gap:6px; font-size:0.78rem;">
+        <div style="color:var(--text-muted); text-align:center; padding:10px;">Menunggu aktivitas baru...</div>
+      </div>
+    </div>
   </aside>
 
   <main class="main-content">
@@ -743,7 +764,7 @@ body.light-theme { --bg-primary: #ffffff; --bg-secondary: #f6f8fa; --bg-tertiary
       gallery.map((f) => {
         const item = helperFormatCardData(f, selectedGroup, MEDIA_DIR);
         
-        const hoverCardHTML = '<div class="hover-sender-container">👤 <u>' + item.sender + '</u><div class="sender-hover-card"><div class="hover-card-avatar">👤</div><div class="hover-card-name">' + item.sender + '</div><div class="hover-card-num">@' + item.number + '</div><div class="hover-card-count">📦 Shared: ' + item.totalMediaContributed + ' File</div></div></div>';
+        const hoverCardHTML = '<div class="hover-sender-container"><a class="chip-sender" href="/?group=' + encodeURIComponent(selectedGroup || '') + '&search=' + encodeURIComponent(item.number || '') + '">👤 ' + item.sender + '</a><div class="sender-hover-card"><div class="hover-card-avatar">👤</div><div class="hover-card-name">' + item.sender + '</div><div class="hover-card-num">@' + item.number + '</div><div class="hover-card-count">📦 Shared: ' + item.totalMediaContributed + ' File</div></div></div>';
 
         if (item.isPlayable) {
           return `<div class="gallery-item" data-src="${item.src}" data-type="${item.type}" data-name="${item.name.replace(/"/g, '&quot;')}" style="cursor:pointer;"><div class="media-preview">${item.type === 'image' ? '<img src="' + item.src + '" loading="lazy">' : '<span class="icon-placeholder">' + (item.type === 'video' ? '🎥' : '🎵') + '</span>'}</div><div class="card-info"><div class="card-filename" title="${item.name.replace(/"/g, '&quot;')}">${item.name}</div><div class="card-row-details"><span class="badge-type badge-${item.type}">${item.type}</span><span>${hoverCardHTML}</span></div><div class="card-row-details" style="margin-top:2px; color:var(--text-muted);"><span>💾 ${item.size}</span><span>🕒 ${item.time}</span></div></div></div>`;
@@ -795,7 +816,34 @@ const eventSource = new EventSource("/api/events");
 eventSource.onmessage = function(event) {
   const data = JSON.parse(event.data);
   showNotificationToast(data);
+  updateActivityFeed(data);
 };
+
+function updateActivityFeed(media) {
+  var feed = document.getElementById("activityFeed");
+  if (!feed) return;
+
+  // Remove "waiting" message
+  var waiting = feed.querySelector("[style*='text-align:center']");
+  if (waiting) waiting.remove();
+
+  // Create feed item
+  var item = document.createElement("div");
+  item.className = "feed-item";
+  var now = new Date();
+  var timeStr = now.getHours().toString().padStart(2,"0") + ":" + now.getMinutes().toString().padStart(2,"0") + ":" + now.getSeconds().toString().padStart(2,"0");
+  var typeIcon = {images:"📷", videos:"🎬", documents:"📎"};
+  var icon = typeIcon[media.type] || "📁";
+  item.innerHTML = '<div class="feed-dot"></div><div class="feed-content"><span class="feed-sender">' + (media.sender || "Unknown") + '</span> ' + icon + ' kirim ' + (media.type || "media") + '<br><span class="feed-time">' + timeStr + ' • ' + (media.group || "") + '</span></div>';
+
+  // Tambah ke atas
+  feed.insertBefore(item, feed.firstChild);
+
+  // Max 15 items
+  while (feed.children.length > 15) {
+    feed.removeChild(feed.lastChild);
+  }
+}
 
 function showNotificationToast(media) {
   const container = document.getElementById("toastContainer");
@@ -1027,7 +1075,7 @@ async function loadMoreMedia() {
       const galleryDiv = document.querySelector(".gallery");
       result.data.forEach(item => {
         let html = '';
-        const hoverCardHTML = '<div class="hover-sender-container">👤 <u>' + item.sender + '</u><div class="sender-hover-card"><div class="hover-card-avatar">👤</div><div class="hover-card-name">' + item.sender + '</div><div class="hover-card-num">@' + item.number + '</div><div class="hover-card-count">📦 Shared: ' + item.totalMediaContributed + ' File</div></div></div>';
+        const hoverCardHTML = '<div class="hover-sender-container"><a class="chip-sender" href="/?group=' + encodeURIComponent(selectedGroup || '') + '&search=' + encodeURIComponent(item.number || '') + '">👤 ' + item.sender + '</a><div class="sender-hover-card"><div class="hover-card-avatar">👤</div><div class="hover-card-name">' + item.sender + '</div><div class="hover-card-num">@' + item.number + '</div><div class="hover-card-count">📦 Shared: ' + item.totalMediaContributed + ' File</div></div></div>';
 
         if (item.isPlayable) {
           html = '<div class="gallery-item" data-src="' + item.src + '" data-type="' + item.type + '" data-name="' + item.name + '" style="cursor:pointer;"><div class="media-preview">' + (item.type === 'image' ? '<img src="' + item.src + '" loading="lazy">' : '<span class="icon-placeholder">' + (item.type === 'video' ? '🎥' : '🎵') + '</span>') + '</div><div class="card-info"><div class="card-filename" title="' + item.name + '">' + item.name + '</div><div class="card-row-details"><span class="badge-type badge-' + item.type + '">' + item.type + '</span><span>' + hoverCardHTML + '</span></div><div class="card-row-details" style="margin-top:2px; color:var(--text-muted);"><span>💾 ' + item.size + '</span><span>🕒 ' + item.time + '</span></div></div></div>';
