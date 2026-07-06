@@ -545,9 +545,27 @@ async function sendMainMenuTelegram() {
 
 async function sendInlineMenu(chatId) {
     try {
+        var NL = String.fromCharCode(10);
+        var menuText = "";
+        menuText += "📱 *WA MEDIA BOT - MENU*" + NL;
+        menuText += "━━━━━━━━━━━━━━━━━━━━" + NL + NL;
+        menuText += "Pilih fitur yang ingin diakses:" + NL + NL;
+        menuText += "📊 *Stats* — Lihat statistik total media tersimpan" + NL;
+        menuText += "🟢 *Status* — Cek status koneksi WA & uptime" + NL;
+        menuText += "📈 *7D Chart* — Grafik aktivitas 7 hari terakhir" + NL;
+        menuText += "📋 *Health* — Cek kesehatan sistem (RAM, uptime)" + NL;
+        menuText += "🛠 *Services* — Status semua service PM2" + NL;
+        menuText += "🚨 *Logs Error* — Lihat 5 error terakhir" + NL;
+        menuText += "📊 *Summary* — Kirim laporan harian sekarang" + NL;
+        menuText += "🔌 *Reconnect* — Putuskan & sambung ulang WA" + NL;
+        menuText += "🎨 *QR Code* — Cek ketersediaan QR login" + NL;
+        menuText += "🚫 *Blacklist* — Lihat/kelola grup yang diabaikan" + NL;
+        menuText += "🗑 *Anti-Delete* — Lihat pesan yang ditarik" + NL;
+        menuText += NL + "━━━━━━━━━━━━━━━━━━━━";
+
         await axios.post("https://api.telegram.org/bot" + process.env.BOT_TOKEN + "/sendMessage", {
             chat_id: chatId,
-            text: "📱 *WA MEDIA BOT - MENU*" + String.fromCharCode(10) + String.fromCharCode(10) + "Pilih fitur yang ingin diakses:",
+            text: menuText,
             parse_mode: "Markdown",
             reply_markup: {
                 inline_keyboard: [
