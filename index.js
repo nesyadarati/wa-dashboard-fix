@@ -946,8 +946,8 @@ async function handleCommand(text, chatId) {
         if (geminiTracker.lastError) msg += "   Error: " + geminiTracker.lastError + NL;
         msg += NL;
         msg += "*🔴 Error Terakhir:*" + NL;
-        msg += "   " + (failed.length ? failed[0].error.substring(0, 50) : "Tidak ada") + NL;
-        msg += "   " + (failed.length ? failed[0].time : "") + NL;
+        msg += "   " + (failed.length ? String(failed[0].error || "").substring(0, 50) : "Tidak ada") + NL;
+        msg += "   " + (failed.length ? (failed[0].time || "") : "") + NL;
         msg += "━━━━━━━━━━━━━━━━━━━━";
 
         // Tambah info PM2 jika bisa
