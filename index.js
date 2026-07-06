@@ -1120,7 +1120,7 @@ async function callGemini(prompt) {
     var GEMINI_KEY = process.env.GEMINI_API_KEY;
     if (!GEMINI_KEY) throw new Error("GEMINI_API_KEY belum diset di .env");
 
-    var geminiUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=" + GEMINI_KEY;
+    var geminiUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" + GEMINI_KEY;
     var maxRetries = 3;
     var retryDelay = 5000; // 5 detik
 
