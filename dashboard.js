@@ -269,15 +269,25 @@ app.get("/api/media", async (req, res) => {
   const date = req.query.date || null;
   if (!group) return res.json({ data: [], hasMore: false });
 
-  let { data: gallery, hasMore } = await getGroupMedia(group, page, 40, date);
+  // Get ALL files for this group (with date filter), then filter by type, then paginate
+  let allResult = await getGroupMedia(group, 1, 99999, date);
+  let allFiles = allResult.data;
+
   if (type !== "all") {
-    gallery = gallery.filter((f) => {
+    allFiles = allFiles.filter((f) => {
       const ext = path.extname(f.name).toLowerCase();
       if (type === "images") return [".jpg", ".jpeg", ".png", ".webp"].includes(ext);
       if (type === "videos") return [".mp4", ".mov", ".mkv", ".mp3", ".opus", ".wav"].includes(ext);
       return ![".jpg", ".jpeg", ".png", ".webp", ".mp4", ".mov", ".mkv", ".mp3", ".opus", ".wav"].includes(ext);
     });
   }
+
+  // Manual pagination after filter
+  const limit = 40;
+  const startIndex = (page - 1) * limit;
+  const endIndex = page * limit;
+  const gallery = allFiles.slice(startIndex, endIndex);
+  const hasMore = endIndex < allFiles.length;
 
   const formattedData = gallery.map(f => helperFormatCardData(f, group, MEDIA_DIR));
   res.json({ data: formattedData, hasMore });
