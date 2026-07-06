@@ -584,6 +584,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxyge
     </span>
   </div>
   <div class="header-actions">
+    <a href="/blacklist" class="btn btn-ghost btn-sm">🚫 Blacklist</a>
     <a href="/restart-bot" class="btn btn-danger btn-sm">🔄 Restart</a>
     <a href="/logout-wa" class="btn btn-warning btn-sm">🚪 Logout WA</a>
   </div>
@@ -1016,6 +1017,179 @@ async function loadMoreMedia() {
 </body>
 </html>
   `);
+});
+
+// ==========================================
+// HALAMAN BLACKLIST/WHITELIST GRUP
+// ==========================================
+app.get("/blacklist", async (req, res) => {
+  const IGNORED_FILE = path.join(__dirname, "ignored-groups.json");
+  let ignoredGroups = [];
+  try { if (fs.existsSync(IGNORED_FILE)) ignoredGroups = JSON.parse(fs.readFileSync(IGNORED_FILE, "utf8")); } catch {}
+
+  const allGroups = await getGroups();
+
+  let waStatus = "OFFLINE";
+  try {
+    const status = JSON.parse(fs.readFileSync(STATUS_FILE, "utf8"));
+    waStatus = status.connected ? "ONLINE" : "OFFLINE";
+  } catch {}
+
+  // Build group cards HTML
+  let activeGroupsHtml = "";
+  let ignoredGroupsHtml = "";
+
+  allGroups.forEach(function(g) {
+    const isIgnored = ignoredGroups.includes(g);
+    const card = `<div class="bl-group-card ${isIgnored ? 'ignored' : 'active'}" data-group="${g.replace(/"/g, '&quot;')}">
+      <div class="bl-group-icon">${isIgnored ? '🚫' : '✅'}</div>
+      <div class="bl-group-name">${g}</div>
+      <button class="bl-toggle-btn ${isIgnored ? 'btn-unignore' : 'btn-ignore'}" data-group="${g.replace(/"/g, '&quot;')}" data-action="${isIgnored ? 'unignore' : 'ignore'}">
+        ${isIgnored ? '↩️ Aktifkan' : '🚫 Nonaktifkan'}
+      </button>
+    </div>`;
+
+    if (isIgnored) ignoredGroupsHtml += card;
+    else activeGroupsHtml += card;
+  });
+
+  res.send(`<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Blacklist Grup - WA Media Dashboard</title>
+<style>
+:root {
+  --bg-primary: #0d1117; --bg-secondary: #161b22; --bg-tertiary: #21262d; --bg-hover: #30363d; --border: #30363d;
+  --text-primary: #e6edf3; --text-secondary: #8b949e; --text-muted: #6e7681; --accent-green: #25D366; --accent-blue: #58a6ff;
+  --accent-red: #f85149; --accent-orange: #d29922; --radius-sm: 6px; --radius-md: 10px; --radius-lg: 16px; --shadow: 0 8px 24px rgba(0,0,0,0.4);
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg-primary); color: var(--text-primary); min-height: 100vh; }
+.header { background: var(--bg-secondary); border-bottom: 1px solid var(--border); padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 100; }
+.header h1 { font-size: 1.3rem; font-weight: 700; display: flex; align-items: center; gap: 10px; }
+.header-actions { display: flex; gap: 10px; }
+.btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: var(--radius-sm); font-size: 0.85rem; font-weight: 600; text-decoration: none; border: none; cursor: pointer; transition: all 0.2s; }
+.btn-back { background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border); }
+.btn-back:hover { background: var(--bg-hover); border-color: var(--accent-blue); }
+.container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+.page-title { font-size: 1.1rem; color: var(--text-secondary); margin-bottom: 24px; }
+.section-box { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-lg); margin-bottom: 24px; overflow: hidden; }
+.section-header { padding: 16px 20px; background: var(--bg-tertiary); border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; cursor: pointer; user-select: none; }
+.section-header:hover { background: var(--bg-hover); }
+.section-header h2 { font-size: 0.95rem; font-weight: 600; display: flex; align-items: center; gap: 10px; }
+.section-header .count { background: var(--bg-primary); padding: 2px 10px; border-radius: 12px; font-size: 0.75rem; color: var(--text-muted); }
+.section-header .arrow { font-size: 1.2rem; color: var(--text-muted); transition: transform 0.3s; }
+.section-header.open .arrow { transform: rotate(180deg); }
+.section-content { display: none; padding: 16px 20px; }
+.section-content.open { display: block; }
+.bl-group-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+.bl-group-card { background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 14px 16px; display: flex; align-items: center; gap: 12px; transition: all 0.2s; }
+.bl-group-card:hover { border-color: var(--accent-blue); transform: translateY(-1px); }
+.bl-group-card.ignored { border-color: rgba(248, 81, 73, 0.3); background: rgba(248, 81, 73, 0.05); }
+.bl-group-card.active { border-color: rgba(37, 211, 102, 0.3); background: rgba(37, 211, 102, 0.05); }
+.bl-group-icon { font-size: 1.5rem; flex-shrink: 0; }
+.bl-group-name { flex: 1; font-size: 0.88rem; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bl-toggle-btn { padding: 6px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); font-size: 0.75rem; font-weight: 600; cursor: pointer; transition: all 0.2s; white-space: nowrap; }
+.btn-ignore { background: transparent; color: var(--accent-red); border-color: var(--accent-red); }
+.btn-ignore:hover { background: var(--accent-red); color: #fff; }
+.btn-unignore { background: transparent; color: var(--accent-green); border-color: var(--accent-green); }
+.btn-unignore:hover { background: var(--accent-green); color: #fff; }
+.empty-msg { color: var(--text-muted); font-size: 0.85rem; padding: 20px; text-align: center; }
+.toast-msg { position: fixed; bottom: 24px; right: 24px; background: var(--bg-secondary); border: 1px solid var(--accent-green); border-radius: var(--radius-md); padding: 12px 20px; color: var(--accent-green); font-size: 0.85rem; box-shadow: var(--shadow); z-index: 9999; display: none; animation: fadeIn 0.3s; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+@media (max-width: 768px) { .bl-group-grid { grid-template-columns: 1fr; } .container { padding: 12px; } }
+</style>
+</head>
+<body>
+
+<header class="header">
+  <h1>🚫 Kelola Blacklist Grup</h1>
+  <div class="header-actions">
+    <span style="padding:6px 14px; border-radius:20px; font-size:0.8rem; font-weight:600; ${waStatus === 'ONLINE' ? 'background:rgba(37,211,102,0.15);color:#25D366;border:1px solid rgba(37,211,102,0.3);' : 'background:rgba(248,81,73,0.15);color:#f85149;border:1px solid rgba(248,81,73,0.3);'}">${waStatus}</span>
+    <a href="/" class="btn btn-back">⬅️ Kembali Dashboard</a>
+  </div>
+</header>
+
+<div class="container">
+  <p class="page-title">Kelola grup mana yang medianya <strong>disimpan</strong> atau <strong>diabaikan</strong> oleh bot. Grup yang di-blacklist tidak akan diunduh medianya.</p>
+
+  <!-- SECTION: BLACKLISTED GROUPS -->
+  <div class="section-box">
+    <div class="section-header open" onclick="toggleSection(this)">
+      <h2>🚫 Grup Dinonaktifkan (Blacklist) <span class="count">${ignoredGroups.length}</span></h2>
+      <span class="arrow">▼</span>
+    </div>
+    <div class="section-content open">
+      ${ignoredGroupsHtml ? '<div class="bl-group-grid">' + ignoredGroupsHtml + '</div>' : '<p class="empty-msg">Belum ada grup yang di-blacklist. Semua grup aktif menyimpan media.</p>'}
+    </div>
+  </div>
+
+  <!-- SECTION: ACTIVE GROUPS -->
+  <div class="section-box">
+    <div class="section-header open" onclick="toggleSection(this)">
+      <h2>✅ Grup Aktif (Menyimpan Media) <span class="count">${allGroups.length - ignoredGroups.length}</span></h2>
+      <span class="arrow">▼</span>
+    </div>
+    <div class="section-content open">
+      ${activeGroupsHtml ? '<div class="bl-group-grid">' + activeGroupsHtml + '</div>' : '<p class="empty-msg">Tidak ada grup aktif.</p>'}
+    </div>
+  </div>
+</div>
+
+<div class="toast-msg" id="toastMsg"></div>
+
+<script>
+function toggleSection(el) {
+  el.classList.toggle("open");
+  var content = el.nextElementSibling;
+  content.classList.toggle("open");
+}
+
+function showToast(msg) {
+  var toast = document.getElementById("toastMsg");
+  toast.textContent = msg;
+  toast.style.display = "block";
+  setTimeout(function() { toast.style.display = "none"; }, 3000);
+}
+
+document.addEventListener("click", function(e) {
+  var btn = e.target.closest(".bl-toggle-btn");
+  if (!btn) return;
+
+  var groupName = btn.getAttribute("data-group");
+  var action = btn.getAttribute("data-action");
+  var shouldIgnore = (action === "ignore");
+
+  btn.disabled = true;
+  btn.textContent = "Memproses...";
+
+  fetch("/api/ignore-group", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ group: groupName, ignore: shouldIgnore })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(d) {
+    if (d.success) {
+      showToast(shouldIgnore ? "🚫 " + groupName + " di-blacklist" : "✅ " + groupName + " diaktifkan kembali");
+      setTimeout(function() { location.reload(); }, 800);
+    } else {
+      btn.disabled = false;
+      btn.textContent = action === "ignore" ? "🚫 Nonaktifkan" : "↩️ Aktifkan";
+      alert("Gagal: " + (d.error || "Unknown"));
+    }
+  })
+  .catch(function() {
+    btn.disabled = false;
+    btn.textContent = action === "ignore" ? "🚫 Nonaktifkan" : "↩️ Aktifkan";
+    alert("Error koneksi server");
+  });
+});
+</script>
+</body>
+</html>`);
 });
 
 app.get("/restart-bot", (req, res) => { exec("pm2 restart wa-media", err => { if (err) return res.send("Restart gagal"); res.redirect("/"); }); });
