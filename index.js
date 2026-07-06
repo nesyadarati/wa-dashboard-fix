@@ -1120,36 +1120,44 @@ async function callGemini(prompt) {
     var GEMINI_KEY = process.env.GEMINI_API_KEY;
     if (!GEMINI_KEY) throw new Error("GEMINI_API_KEY belum diset di .env");
 
-    var geminiUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" + GEMINI_KEY;
-    var maxRetries = 3;
-    var retryDelay = 5000; // 5 detik
+    var models = ["gemini-2.5-flash", "gemini-2.0-flash-lite"];
+    var lastError = null;
 
-    for (var attempt = 1; attempt <= maxRetries; attempt++) {
-        try {
-            var response = await axios.post(geminiUrl, {
-                contents: [{ parts: [{ text: prompt }] }]
-            }, { headers: { "Content-Type": "application/json" }, timeout: 60000 });
+    for (var m = 0; m < models.length; m++) {
+        var geminiUrl = "https://generativelanguage.googleapis.com/v1beta/models/" + models[m] + ":generateContent?key=" + GEMINI_KEY;
+        var maxRetries = 2;
+        var retryDelay = 5000;
 
-            var aiText = "";
-            if (response.data.candidates && response.data.candidates[0] && response.data.candidates[0].content) {
-                aiText = response.data.candidates[0].content.parts[0].text || "";
-            }
-            if (!aiText) throw new Error("Gemini tidak mengembalikan hasil.");
-            return aiText;
+        for (var attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                var response = await axios.post(geminiUrl, {
+                    contents: [{ parts: [{ text: prompt }] }]
+                }, { headers: { "Content-Type": "application/json" }, timeout: 60000 });
 
-        } catch (err) {
-            var statusCode = err.response ? err.response.status : 0;
-            if (statusCode === 429 && attempt < maxRetries) {
-                // Rate limited - tunggu lalu coba lagi
-                console.log("Gemini rate limited, retry " + attempt + "/" + maxRetries + " in " + (retryDelay/1000) + "s...");
-                await new Promise(function(resolve) { setTimeout(resolve, retryDelay); });
-                retryDelay = retryDelay * 2; // exponential backoff
-            } else {
-                throw new Error("Gemini API error: " + (err.response ? "status " + statusCode : err.message));
+                var aiText = "";
+                if (response.data.candidates && response.data.candidates[0] && response.data.candidates[0].content) {
+                    aiText = response.data.candidates[0].content.parts[0].text || "";
+                }
+                if (!aiText) throw new Error("Gemini tidak mengembalikan hasil.");
+                return aiText;
+
+            } catch (err) {
+                lastError = err;
+                var statusCode = err.response ? err.response.status : 0;
+                if ((statusCode === 429 || statusCode === 503) && attempt < maxRetries) {
+                    console.log("Gemini " + models[m] + " rate limited, retry in " + (retryDelay/1000) + "s...");
+                    await new Promise(function(resolve) { setTimeout(resolve, retryDelay); });
+                    retryDelay = retryDelay * 2;
+                } else if (statusCode === 429 || statusCode === 503 || statusCode === 404) {
+                    console.log("Gemini " + models[m] + " failed (" + statusCode + "), trying next model...");
+                    break; // try next model
+                } else {
+                    throw new Error("Gemini API error: " + (err.response ? "status " + statusCode : err.message));
+                }
             }
         }
     }
-    throw new Error("Gemini API gagal setelah " + maxRetries + " percobaan (rate limited).");
+    throw new Error("Semua model Gemini gagal. " + (lastError ? lastError.message : ""));
 }
 
 
