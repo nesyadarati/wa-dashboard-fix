@@ -1416,16 +1416,41 @@ app.post("/api/generate-report", async (req, res) => {
     prompt += "4. Kesimpulan singkat 1-2 kalimat" + NL + NL;
     prompt += "--- LOG CHAT ---" + NL + chatText;
 
-    // 6. Panggil Gemini
+    // 6. Panggil Gemini (with retry + fallback)
     var axios = require("axios");
-    var geminiUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=" + GEMINI_KEY;
-    var aiResponse = await axios.post(geminiUrl, {
-      contents: [{ parts: [{ text: prompt }] }]
-    }, { headers: { "Content-Type": "application/json" }, timeout: 30000 });
-
+    var models = ["gemini-2.5-flash", "gemini-2.0-flash-lite"];
     var aiText = "";
-    if (aiResponse.data.candidates && aiResponse.data.candidates[0] && aiResponse.data.candidates[0].content) {
-      aiText = aiResponse.data.candidates[0].content.parts[0].text || "";
+    var lastErr = null;
+
+    for (var mi = 0; mi < models.length; mi++) {
+      var geminiUrl = "https://generativelanguage.googleapis.com/v1beta/models/" + models[mi] + ":generateContent?key=" + GEMINI_KEY;
+      for (var attempt = 0; attempt < 2; attempt++) {
+        try {
+          var aiResponse = await axios.post(geminiUrl, {
+            contents: [{ parts: [{ text: prompt }] }]
+          }, { headers: { "Content-Type": "application/json" }, timeout: 60000 });
+
+          if (aiResponse.data.candidates && aiResponse.data.candidates[0] && aiResponse.data.candidates[0].content) {
+            aiText = aiResponse.data.candidates[0].content.parts[0].text || "";
+          }
+          if (aiText) break;
+        } catch (gemErr) {
+          lastErr = gemErr;
+          var sc = gemErr.response ? gemErr.response.status : 0;
+          if ((sc === 429 || sc === 503) && attempt === 0) {
+            await new Promise(function(r) { setTimeout(r, 5000); });
+          } else if (sc === 429 || sc === 503 || sc === 404) {
+            break; // try next model
+          } else {
+            break;
+          }
+        }
+      }
+      if (aiText) break;
+    }
+
+    if (!aiText) {
+      return res.status(500).json({ error: "Gemini API gagal: " + (lastErr ? (lastErr.response ? "status " + lastErr.response.status : lastErr.message) : "no response") });
     }
 
     // 7. Pilih highlight photos (max 12, spread across days)
