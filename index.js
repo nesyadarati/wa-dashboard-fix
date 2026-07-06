@@ -1270,7 +1270,12 @@ async function askAIAssistant(question) {
     var prompt = "Kamu adalah AI Assistant untuk WA Media Bot. Kamu punya akses ke semua data media dan chat dari grup-grup WhatsApp." + NL;
     prompt += "Jawab pertanyaan user dengan bahasa Indonesia yang natural dan friendly." + NL;
     prompt += "Kalau ditanya sesuatu yang tidak ada datanya, bilang saja tidak tersedia." + NL;
-    prompt += "Jawab SINGKAT dan LANGSUNG — jangan bertele-tele." + NL + NL;
+    prompt += "Jawab dengan format yang RAPIH dan mudah dibaca di Telegram:" + NL;
+    prompt += "- Gunakan *bold* untuk judul/poin penting" + NL;
+    prompt += "- Gunakan bullet point (• atau -) untuk list" + NL;
+    prompt += "- Pisahkan bagian dengan baris kosong" + NL;
+    prompt += "- Kalau diminta rangkum, buat per-bagian: Topik, Detail, Kesimpulan" + NL;
+    prompt += "- Jawab SINGKAT tapi TERSTRUKTUR — jangan 1 paragraf panjang" + NL + NL;
     prompt += "STATUS BOT: " + (botStatus.connected ? "Online" : "Offline") + NL;
     prompt += "TOTAL SAVED: " + stats.saved + " | TOTAL FAILED: " + stats.failed + NL + NL;
     prompt += "=== DATA KONTEKS ===" + NL;
