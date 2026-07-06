@@ -297,23 +297,41 @@ app.post("/api/pin-group", (req, res) => {
   res.json({ success: true, pinned });
 });
 
-// Request unduh ulang via integrasi token robot Telegram
+// Request unduh ulang - simpan ke queue file
 app.post("/api/redownload", (req, res) => {
   const { messageId } = req.body;
   if(!messageId) return res.status(400).json({ error: "Message ID wajib diisi" });
 
   try {
+    // Simpan ke redownload-queue.json
+    const queueFile = path.join(__dirname, "redownload-queue.json");
+    let queue = [];
+    try { if(fs.existsSync(queueFile)) queue = JSON.parse(fs.readFileSync(queueFile, "utf8")); } catch(e) { queue = []; }
+    queue.push({ messageId: messageId, requestedAt: new Date().toISOString() });
+    fs.writeFileSync(queueFile, JSON.stringify(queue, null, 2), "utf8");
+
+    // Hapus dari failed-media.json
+    try {
+      if (fs.existsSync(FAILED_FILE)) {
+        let failedList = JSON.parse(fs.readFileSync(FAILED_FILE, "utf8"));
+        failedList = failedList.filter(f => f.messageId !== messageId);
+        fs.writeFileSync(FAILED_FILE, JSON.stringify(failedList, null, 2), "utf8");
+      }
+    } catch(e) {}
+
+    // Kirim ke Telegram jika ada config
     const botToken = process.env.BOT_TOKEN;
     const chatId = process.env.CHAT_ID;
     if(botToken && chatId) {
-      require("axios").post(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-        chat_id: chatId,
-        text: `/redownload ${messageId}`
-      });
-      return res.json({ success: true, message: "Instruksi unduh ulang berhasil dikirim ke Bot WA." });
-    } else {
-      return res.status(500).json({ error: "Konfigurasi token Bot Telegram di server belum lengkap." });
+      try {
+        require("axios").post("https://api.telegram.org/bot" + botToken + "/sendMessage", {
+          chat_id: chatId,
+          text: "/redownload " + messageId
+        });
+      } catch(e) {}
     }
+
+    return res.json({ success: true, message: "Media telah ditambahkan ke antrian unduh ulang." });
   } catch(err) {
     res.status(500).json({ error: err.message });
   }
@@ -658,13 +676,16 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxyge
       ${gallery.length === 0 ? `<div class="empty-state" style="grid-column: 1 / -1;"><div class="icon">📭</div><p>Tidak ada media</p></div>` : 
       gallery.map((f) => {
         const item = helperFormatCardData(f, selectedGroup, MEDIA_DIR);
+        const safeSrc = item.src.replace(/'/g, "\\\\'");
+        const safeName = item.name.replace(/'/g, "\\\\'");
+        const safeType = item.type;
         
         const hoverCardHTML = '<div class="hover-sender-container">👤 <u>' + item.sender + '</u><div class="sender-hover-card"><div class="hover-card-avatar">👤</div><div class="hover-card-name">' + item.sender + '</div><div class="hover-card-num">@' + item.number + '</div><div class="hover-card-count">📦 Shared: ' + item.totalMediaContributed + ' File</div></div></div>';
 
         if (item.isPlayable) {
-          return '<div class="gallery-item" data-src="' + item.src + '" data-type="' + item.type + '" data-name="' + item.name + '" onclick="openLightbox(\'' + item.src + '\', \'' + item.type + '\', \'' + item.name + '\')"><div class="media-preview">' + (item.type === 'image' ? '<img src="' + item.src + '" loading="lazy">' : '<span class="icon-placeholder">' + (item.type === 'video' ? '🎥' : '🎵') + '</span>') + '</div><div class="card-info" onclick="event.stopPropagation()"><div class="card-filename" title="' + item.name + '">' + item.name + '</div><div class="card-row-details"><span class="badge-type badge-' + item.type + '">' + item.type + '</span><span>' + hoverCardHTML + '</span></div><div class="card-row-details" style="margin-top:2px; color:var(--text-muted);"><span>💾 ' + item.size + '</span><span>🕒 ' + item.time + '</span></div></div></div>';
+          return '<div class="gallery-item" data-src="' + item.src + '" data-type="' + item.type + '" data-name="' + item.name.replace(/"/g, '&quot;') + '" onclick="openLightbox(\\\'' + safeSrc + '\\\', \\\'' + safeType + '\\\', \\\'' + safeName + '\\\')" style="cursor:pointer;"><div class="media-preview">' + (item.type === 'image' ? '<img src="' + item.src + '" loading="lazy">' : '<span class="icon-placeholder">' + (item.type === 'video' ? '🎥' : '🎵') + '</span>') + '</div><div class="card-info" onclick="event.stopPropagation()"><div class="card-filename" title="' + item.name + '">' + item.name + '</div><div class="card-row-details"><span class="badge-type badge-' + item.type + '">' + item.type + '</span><span>' + hoverCardHTML + '</span></div><div class="card-row-details" style="margin-top:2px; color:var(--text-muted);"><span>💾 ' + item.size + '</span><span>🕒 ' + item.time + '</span></div></div></div>';
         } else {
-          return '<div class="gallery-item" onclick="window.open(\'' + item.src + '\', \'_blank\')"><div class="media-preview"><span class="icon-placeholder">📄</span></div><div class="card-info" onclick="event.stopPropagation()"><div class="card-filename" title="' + item.name + '">' + item.name + '</div><div class="card-row-details"><span class="badge-type badge-doc">Dokumen</span><span>' + hoverCardHTML + '</span></div><div class="card-row-details" style="margin-top:2px; color:var(--text-muted);"><span>💾 ' + item.size + '</span><span>🕒 ' + item.time + '</span></div></div></div>';
+          return '<div class="gallery-item" data-src="' + item.src + '" data-type="' + item.type + '" data-name="' + item.name.replace(/"/g, '&quot;') + '" onclick="window.open(\\\'' + safeSrc + '\\\', \\\'_blank\\\')" style="cursor:pointer;"><div class="media-preview"><span class="icon-placeholder">📄</span></div><div class="card-info" onclick="event.stopPropagation()"><div class="card-filename" title="' + item.name + '">' + item.name + '</div><div class="card-row-details"><span class="badge-type badge-doc">Dokumen</span><span>' + hoverCardHTML + '</span></div><div class="card-row-details" style="margin-top:2px; color:var(--text-muted);"><span>💾 ' + item.size + '</span><span>🕒 ' + item.time + '</span></div></div></div>';
         }
       }).join('')}
     </div>
