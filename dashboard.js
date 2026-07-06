@@ -338,6 +338,35 @@ app.post("/api/redownload", (req, res) => {
   }
 });
 
+// API Blacklist/Whitelist Grup
+app.get("/api/ignored-groups", (req, res) => {
+  try {
+    const IGNORED_FILE = path.join(__dirname, "ignored-groups.json");
+    let ignored = [];
+    if (fs.existsSync(IGNORED_FILE)) {
+      ignored = JSON.parse(fs.readFileSync(IGNORED_FILE, "utf8"));
+    }
+    res.json({ groups: ignored });
+  } catch (e) { res.json({ groups: [] }); }
+});
+
+app.post("/api/ignore-group", (req, res) => {
+  const { group, ignore } = req.body;
+  if (!group) return res.status(400).json({ error: "Nama grup kosong" });
+
+  const IGNORED_FILE = path.join(__dirname, "ignored-groups.json");
+  let ignored = [];
+  try { if (fs.existsSync(IGNORED_FILE)) ignored = JSON.parse(fs.readFileSync(IGNORED_FILE, "utf8")); } catch {}
+
+  if (ignore) {
+    if (!ignored.includes(group)) ignored.push(group);
+  } else {
+    ignored = ignored.filter(function(g) { return g !== group; });
+  }
+  fs.writeFileSync(IGNORED_FILE, JSON.stringify(ignored, null, 2));
+  res.json({ success: true, ignored: ignored });
+});
+
 app.get("/api/export-chat", async (req, res) => {
   const group = req.query.group;
   const startDate = req.query.start_date;
