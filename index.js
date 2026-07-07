@@ -12,7 +12,6 @@ const moment = require("moment");
 const qrcode = require("qrcode-terminal");
 const axios = require("axios");
 const { exec } = require("child_process");
-const PDFDocument = require("pdfkit");
 
 const STATUS_FILE = path.join(__dirname, "status.json");
 const STATS_FILE = path.join(__dirname, "stats.json");
@@ -808,6 +807,8 @@ async function telegramCommands() {
 async function handleCommand(text, chatId) {
     var NL = String.fromCharCode(10);
 
+    try {
+
     // Map reply keyboard button texts to commands
     if (text === "📊 Overview" || text === "📊 Stats" || text === "🟢 Status") text = "/overview";
     if (text === "🛠 Sistem" || text === "📋 Health" || text === "🛠 Services") text = "/sistem";
@@ -1253,6 +1254,11 @@ async function handleCommand(text, chatId) {
         }
         return;
     }
+
+    } catch (cmdErr) {
+        console.log("COMMAND HANDLER ERROR:", cmdErr.message);
+        try { await replyTelegram(chatId, "❌ Error: " + (cmdErr.message || "Unknown").substring(0, 200)); } catch (e) {}
+    }
 }
 
 
@@ -1610,6 +1616,7 @@ async function generateExportReport(groupName, startDate, endDate, format, chatI
 async function generatePDFFile(outputPath, data) {
     return new Promise(function(resolve, reject) {
         try {
+            var PDFDocument = require("pdfkit");
             var doc = new PDFDocument({ size: "A4", margin: 50, bufferPages: true });
             var stream = fs.createWriteStream(outputPath);
             doc.pipe(stream);
