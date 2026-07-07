@@ -12,6 +12,7 @@ const moment = require("moment");
 const qrcode = require("qrcode-terminal");
 const axios = require("axios");
 const { exec } = require("child_process");
+const PDFDocument = require("pdfkit");
 
 const STATUS_FILE = path.join(__dirname, "status.json");
 const STATS_FILE = path.join(__dirname, "stats.json");
@@ -267,6 +268,22 @@ async function sendTelegram(text) {
             parse_mode: "Markdown"
         });
     } catch (err) { console.log("TELEGRAM SEND ERROR", err.message); }
+}
+
+async function sendTelegramDocument(chatId, filePath, caption) {
+    try {
+        var FormData = require("form-data");
+        var form = new FormData();
+        form.append("chat_id", chatId);
+        form.append("document", fs.createReadStream(filePath));
+        if (caption) form.append("caption", caption.substring(0, 1024));
+        form.append("parse_mode", "Markdown");
+
+        await axios.post("https://api.telegram.org/bot" + process.env.BOT_TOKEN + "/sendDocument", form, {
+            headers: form.getHeaders(),
+            timeout: 60000
+        });
+    } catch (err) { console.log("TELEGRAM SEND DOC ERROR", err.message); }
 }
 
 async function replyTelegram(chatId, text) {
@@ -717,7 +734,7 @@ async function sendMainMenuTelegram() {
                     [{ text: "📈 7D Chart" }, { text: "🚨 Logs Error" }, { text: "📊 Summary" }],
                     [{ text: "🔌 Reconnect" }, { text: "🚫 Blacklist" }, { text: "🗑 Anti-Delete" }],
                     [{ text: "📝 Rangkum Chat" }, { text: "📋 Report" }, { text: "🧠 Tanya AI" }],
-                    [{ text: "🔍 Menu" }]
+                    [{ text: "📤 Export" }, { text: "🔍 Menu" }]
                 ],
                 resize_keyboard: true,
                 one_time_keyboard: false
@@ -744,6 +761,7 @@ async function sendInlineMenu(chatId) {
         menuText += "🗑 *Anti-Delete* — Lihat pesan yang ditarik" + NL;
         menuText += "📝 *Rangkum* — Rangkum isi chat grup per tanggal" + NL;
         menuText += "📋 *Report* — Buat laporan lengkap grup + statistik" + NL;
+        menuText += "📤 *Export* — Export laporan jadi PDF atau text" + NL;
         menuText += "🧠 *Tanya AI* — Tanya apapun tentang data grup kamu" + NL;
         menuText += NL + "━━━━━━━━━━━━━━━━━━━━";
 
@@ -756,7 +774,8 @@ async function sendInlineMenu(chatId) {
                     [{ text: "📊 Overview", callback_data: "/overview" }, { text: "🛠 Sistem", callback_data: "/sistem" }, { text: "📅 Hari Ini", callback_data: "/today" }],
                     [{ text: "📈 7D Chart", callback_data: "/chart" }, { text: "🚨 Logs Error", callback_data: "/viewlogs" }, { text: "📊 Summary", callback_data: "/summary_now" }],
                     [{ text: "🔌 Reconnect", callback_data: "/reconnect" }, { text: "🚫 Blacklist", callback_data: "/blacklist" }, { text: "🗑 Anti-Delete", callback_data: "/antidelete" }],
-                    [{ text: "📝 Rangkum", callback_data: "/rangkum_help" }, { text: "📋 Report", callback_data: "/report_help" }, { text: "🧠 Tanya AI", callback_data: "/ask_help" }]
+                    [{ text: "📝 Rangkum", callback_data: "/rangkum_help" }, { text: "📋 Report", callback_data: "/report_help" }, { text: "🧠 Tanya AI", callback_data: "/ask_help" }],
+                    [{ text: "📤 Export PDF/Text", callback_data: "/export_help" }]
                 ]
             }
         });
@@ -807,6 +826,10 @@ async function handleCommand(text, chatId) {
 
     if (text === "📋 Report" || text === "/report_help") {
         return replyTelegram(chatId, "📋 *Cara Buat Report:*" + String.fromCharCode(10) + String.fromCharCode(10) + "Ketik: `/report NamaGrup`" + String.fromCharCode(10) + String.fromCharCode(10) + "Opsi waktu:" + String.fromCharCode(10) + "`/report NamaGrup hari-ini`" + String.fromCharCode(10) + "`/report NamaGrup kemarin`" + String.fromCharCode(10) + "`/report NamaGrup minggu-ini`" + String.fromCharCode(10) + "`/report NamaGrup 2026-07-05`" + String.fromCharCode(10) + String.fromCharCode(10) + "Tanpa opsi = hari ini.");
+    }
+
+    if (text === "📤 Export" || text === "/export_help") {
+        return replyTelegram(chatId, "📤 *Cara Export Laporan:*" + String.fromCharCode(10) + String.fromCharCode(10) + "Ketik: `/export NamaGrup`" + String.fromCharCode(10) + String.fromCharCode(10) + "Opsi waktu:" + String.fromCharCode(10) + "`/export NamaGrup hari-ini`" + String.fromCharCode(10) + "`/export NamaGrup kemarin`" + String.fromCharCode(10) + "`/export NamaGrup minggu-ini`" + String.fromCharCode(10) + "`/export NamaGrup 2026-07-05`" + String.fromCharCode(10) + String.fromCharCode(10) + "Pilih format (di akhir):" + String.fromCharCode(10) + "`/export NamaGrup hari-ini pdf`" + String.fromCharCode(10) + "`/export NamaGrup hari-ini text`" + String.fromCharCode(10) + String.fromCharCode(10) + "Default = PDF dengan foto.");
     }
 
     if (text === "🧠 Tanya AI" || text === "/ask_help") {
@@ -1073,6 +1096,72 @@ async function handleCommand(text, chatId) {
         msg += "_Total tercatat: " + logs.length + " pesan_" + NL;
         msg += "━━━━━━━━━━━━━━━━━━━━";
         return replyTelegram(chatId, msg);
+    }
+
+    // EXPORT COMMAND - /export GrupName [waktu] [pdf/text]
+    if (text.startsWith("/export ")) {
+        var exportParts = text.replace("/export ", "").trim().split(" ");
+        var exportFormat = "pdf"; // default PDF
+        var exportDate = null;
+        var exportEndDate = null;
+
+        // Cek format (terakhir: pdf atau text)
+        var lastWord = exportParts[exportParts.length - 1].toLowerCase();
+        if (lastWord === "pdf" || lastWord === "text" || lastWord === "txt") {
+            exportFormat = (lastWord === "pdf") ? "pdf" : "text";
+            exportParts.pop();
+        }
+
+        // Cek waktu (kedua terakhir)
+        var timePart = exportParts[exportParts.length - 1];
+        if (timePart === "hari-ini" || timePart === "today") {
+            exportParts.pop();
+            exportDate = moment().format("YYYY-MM-DD");
+            exportEndDate = exportDate;
+        } else if (timePart === "kemarin" || timePart === "yesterday") {
+            exportParts.pop();
+            exportDate = moment().subtract(1, "days").format("YYYY-MM-DD");
+            exportEndDate = exportDate;
+        } else if (timePart === "minggu-ini" || timePart === "this-week") {
+            exportParts.pop();
+            exportDate = moment().startOf("week").format("YYYY-MM-DD");
+            exportEndDate = moment().format("YYYY-MM-DD");
+        } else if (/^\d{4}-\d{2}-\d{2}$/.test(timePart)) {
+            exportParts.pop();
+            exportDate = timePart;
+            exportEndDate = timePart;
+        }
+
+        var exportGroup = exportParts.join(" ");
+        if (!exportGroup) {
+            return replyTelegram(chatId, "📤 *Cara Export:*" + NL + NL +
+                "`/export NamaGrup`" + NL +
+                "`/export NamaGrup hari-ini`" + NL +
+                "`/export NamaGrup kemarin pdf`" + NL +
+                "`/export NamaGrup minggu-ini text`" + NL +
+                "`/export NamaGrup 2026-07-05 pdf`" + NL + NL +
+                "Format: `pdf` (default) atau `text`" + NL +
+                "Tanpa waktu = hari ini");
+        }
+
+        if (!exportDate) {
+            exportDate = moment().format("YYYY-MM-DD");
+            exportEndDate = exportDate;
+        }
+
+        var formatLabel = exportFormat === "pdf" ? "📄 PDF" : "📝 Text";
+        await replyTelegram(chatId, "📤 Membuat export " + formatLabel + " untuk *" + exportGroup + "*...");
+
+        try {
+            var exportResult = await generateExportReport(exportGroup, exportDate, exportEndDate, exportFormat, chatId);
+            if (exportFormat === "text") {
+                await replyTelegram(chatId, exportResult);
+            }
+            // PDF dikirim langsung dari dalam fungsi generateExportReport
+        } catch (err) {
+            await replyTelegram(chatId, "❌ Gagal export: " + (err.message || String(err)).substring(0, 200));
+        }
+        return;
     }
 
     // AI ASSISTANT - /ask command
@@ -1363,6 +1452,306 @@ async function generateReport(groupName, startDate, endDate) {
     output += "━━━━━━━━━━━━━━━━━━━━";
 
     return output;
+}
+
+
+// ==========================================
+// EXPORT REPORT (PDF / TEXT) - untuk Telegram
+// ==========================================
+
+async function generateExportReport(groupName, startDate, endDate, format, chatId) {
+    var NL = String.fromCharCode(10);
+    if (!process.env.LLM_API_KEY || !process.env.LLM_BASE_URL) throw new Error("LLM_BASE_URL atau LLM_API_KEY belum diset di .env");
+
+    // 1. Baca chat dalam rentang tanggal
+    var logFile = path.join(__dirname, "WA-MEDIA", groupName, "chat_history.jsonl");
+    var chats = [];
+    if (fs.existsSync(logFile)) {
+        var content = fs.readFileSync(logFile, "utf8");
+        var lines = content.trim().split(String.fromCharCode(10)).filter(Boolean);
+        lines.forEach(function(line) {
+            try {
+                var chat = JSON.parse(line);
+                var chatDate = (chat.time || "").slice(0, 10);
+                if (chatDate >= startDate && chatDate <= endDate) chats.push(chat);
+            } catch (e) {}
+        });
+    }
+
+    // 2. Hitung media dalam rentang
+    var mediaDir = path.join(__dirname, "WA-MEDIA", groupName);
+    var photoCount = 0, videoCount = 0, docCount = 0;
+    var photoFiles = [];
+    function countMedia(dir) {
+        if (!fs.existsSync(dir)) return;
+        var items = fs.readdirSync(dir);
+        items.forEach(function(item) {
+            var full = path.join(dir, item);
+            try {
+                var stat = fs.statSync(full);
+                if (stat.isDirectory()) { countMedia(full); }
+                else {
+                    var fileDate = stat.mtime.toISOString().slice(0, 10);
+                    if (fileDate >= startDate && fileDate <= endDate) {
+                        var ext = path.extname(item).toLowerCase();
+                        if ([".jpg", ".jpeg", ".png", ".webp"].indexOf(ext) !== -1) {
+                            photoCount++;
+                            if (photoFiles.length < 20) photoFiles.push(full);
+                        }
+                        else if ([".mp4", ".mov", ".mkv", ".mp3", ".opus", ".wav"].indexOf(ext) !== -1) videoCount++;
+                        else if (item !== "chat_history.jsonl") docCount++;
+                    }
+                }
+            } catch (e) {}
+        });
+    }
+    countMedia(mediaDir);
+
+    if (chats.length === 0 && photoCount === 0) {
+        throw new Error("Tidak ada data pada periode " + startDate + " s/d " + endDate + " di grup " + groupName);
+    }
+
+    // 3. Generate rangkuman AI
+    var chatText = chats.map(function(c) {
+        return "[" + c.time + "] " + c.sender + ": " + c.message;
+    }).join(NL);
+    if (chatText.length > 10000) chatText = chatText.substring(chatText.length - 10000);
+
+    var prompt = "Kamu membuat laporan progres proyek dari chat WhatsApp grup." + NL;
+    prompt += "Tulis laporan dengan bahasa Indonesia yang natural dan profesional." + NL;
+    prompt += "JANGAN gunakan format markdown seperti **bold**, *italic*, ##heading. Tulis plain text saja." + NL + NL;
+    prompt += "Grup: " + groupName + NL;
+    prompt += "Periode: " + startDate + " s/d " + endDate + NL;
+    prompt += "Total foto: " + photoCount + ", Video: " + videoCount + ", Dokumen: " + docCount + NL;
+    prompt += "Total chat: " + chats.length + " pesan" + NL + NL;
+    prompt += "Buatkan laporan mencakup:" + NL;
+    prompt += "1. Rangkuman aktivitas per hari" + NL;
+    prompt += "2. Keputusan/target yang disepakati" + NL;
+    prompt += "3. Masalah/kendala jika ada" + NL;
+    prompt += "4. Kesimpulan singkat" + NL + NL;
+    prompt += "--- LOG CHAT ---" + NL + chatText;
+
+    var aiText = "";
+    try {
+        aiText = await callGemini(prompt);
+    } catch (e) {
+        aiText = "(AI tidak tersedia: " + e.message + ")" + NL + NL + "Chat log tersedia " + chats.length + " pesan.";
+    }
+
+    // 4. Hitung partisipan unik
+    var participants = {};
+    chats.forEach(function(c) { participants[c.sender || "Unknown"] = (participants[c.sender || "Unknown"] || 0) + 1; });
+    var participantList = Object.entries(participants).sort(function(a, b) { return b[1] - a[1]; });
+
+    // 5. Generate output berdasarkan format
+    var periodLabel = (startDate === endDate) ? startDate : startDate + " s/d " + endDate;
+
+    if (format === "text") {
+        // FORMAT TEXT - langsung kirim ke Telegram
+        var output = "";
+        output += "━━━━━━━━━━━━━━━━━━━━" + NL;
+        output += "📤 *EXPORT LAPORAN*" + NL;
+        output += "━━━━━━━━━━━━━━━━━━━━" + NL + NL;
+        output += "👥 *Grup:* " + groupName + NL;
+        output += "📅 *Periode:* " + periodLabel + NL;
+        output += "💬 *Pesan:* " + chats.length + " | 👤 *Partisipan:* " + participantList.length + NL;
+        output += "📷 " + photoCount + " foto | 🎬 " + videoCount + " video | 📎 " + docCount + " dok" + NL;
+        output += NL + "━━━━━━━━━━━━━━━━━━━━" + NL + NL;
+        output += aiText + NL + NL;
+        if (participantList.length > 0) {
+            output += "━━━━━━━━━━━━━━━━━━━━" + NL;
+            output += "👤 *Partisipan Aktif:*" + NL;
+            participantList.slice(0, 10).forEach(function(p) {
+                output += "• " + p[0] + " (" + p[1] + " pesan)" + NL;
+            });
+        }
+        output += NL + "━━━━━━━━━━━━━━━━━━━━";
+        return output;
+
+    } else {
+        // FORMAT PDF - generate file, kirim ke Telegram
+        var tmpDir = path.join(__dirname, "tmp");
+        fs.ensureDirSync(tmpDir);
+        var pdfFileName = "Laporan_" + groupName.replace(/[^a-zA-Z0-9]/g, "_") + "_" + startDate + ".pdf";
+        var pdfPath = path.join(tmpDir, pdfFileName);
+
+        await generatePDFFile(pdfPath, {
+            groupName: groupName,
+            period: periodLabel,
+            startDate: startDate,
+            endDate: endDate,
+            chatCount: chats.length,
+            photoCount: photoCount,
+            videoCount: videoCount,
+            docCount: docCount,
+            participants: participantList,
+            summary: aiText,
+            photos: photoFiles
+        });
+
+        // Kirim PDF ke Telegram
+        var caption = "📤 *Laporan " + groupName + "*" + NL + "📅 " + periodLabel + NL + "📷 " + photoCount + " foto | 💬 " + chats.length + " pesan";
+        await sendTelegramDocument(chatId, pdfPath, caption);
+
+        // Cleanup tmp file setelah kirim
+        setTimeout(function() {
+            try { fs.removeSync(pdfPath); } catch (e) {}
+        }, 10000);
+
+        return null; // PDF sudah dikirim langsung
+    }
+}
+
+
+// ==========================================
+// PDF FILE GENERATOR
+// ==========================================
+
+async function generatePDFFile(outputPath, data) {
+    return new Promise(function(resolve, reject) {
+        try {
+            var doc = new PDFDocument({ size: "A4", margin: 50, bufferPages: true });
+            var stream = fs.createWriteStream(outputPath);
+            doc.pipe(stream);
+
+            var pageWidth = doc.page.width - 100; // margin 50 kiri + 50 kanan
+
+            // === HEADER ===
+            doc.fontSize(20).font("Helvetica-Bold").text("LAPORAN PROYEK", { align: "center" });
+            doc.moveDown(0.3);
+            doc.fontSize(14).font("Helvetica").text(data.groupName, { align: "center" });
+            doc.moveDown(0.3);
+            doc.fontSize(10).fillColor("#666666").text("Periode: " + data.period, { align: "center" });
+            doc.text("Dibuat: " + moment().format("DD MMMM YYYY, HH:mm"), { align: "center" });
+            doc.moveDown(0.5);
+
+            // === GARIS PEMISAH ===
+            doc.strokeColor("#25D366").lineWidth(2)
+               .moveTo(50, doc.y).lineTo(doc.page.width - 50, doc.y).stroke();
+            doc.moveDown(1);
+
+            // === STATISTIK BOX ===
+            doc.fontSize(12).font("Helvetica-Bold").fillColor("#000000").text("STATISTIK");
+            doc.moveDown(0.5);
+            doc.fontSize(10).font("Helvetica").fillColor("#333333");
+            doc.text("Total Pesan: " + data.chatCount + "     Partisipan: " + data.participants.length);
+            doc.text("Foto: " + data.photoCount + "     Video: " + data.videoCount + "     Dokumen: " + data.docCount);
+            doc.moveDown(1);
+
+            // === GARIS ===
+            doc.strokeColor("#DDDDDD").lineWidth(0.5)
+               .moveTo(50, doc.y).lineTo(doc.page.width - 50, doc.y).stroke();
+            doc.moveDown(1);
+
+            // === RANGKUMAN AI ===
+            doc.fontSize(12).font("Helvetica-Bold").fillColor("#000000").text("RANGKUMAN");
+            doc.moveDown(0.5);
+            doc.fontSize(10).font("Helvetica").fillColor("#333333");
+
+            // Split summary ke paragraf biar ga overflow
+            var summaryLines = (data.summary || "").split(String.fromCharCode(10));
+            summaryLines.forEach(function(line) {
+                if (line.trim()) {
+                    doc.text(line.trim(), { width: pageWidth, align: "left" });
+                    doc.moveDown(0.3);
+                } else {
+                    doc.moveDown(0.5);
+                }
+            });
+            doc.moveDown(1);
+
+            // === PARTISIPAN ===
+            if (data.participants.length > 0) {
+                doc.strokeColor("#DDDDDD").lineWidth(0.5)
+                   .moveTo(50, doc.y).lineTo(doc.page.width - 50, doc.y).stroke();
+                doc.moveDown(1);
+
+                doc.fontSize(12).font("Helvetica-Bold").fillColor("#000000").text("PARTISIPAN AKTIF");
+                doc.moveDown(0.5);
+                doc.fontSize(9).font("Helvetica").fillColor("#333333");
+
+                data.participants.slice(0, 15).forEach(function(p, idx) {
+                    doc.text((idx + 1) + ". " + p[0] + " - " + p[1] + " pesan");
+                });
+                doc.moveDown(1);
+            }
+
+            // === FOTO HIGHLIGHT ===
+            if (data.photos && data.photos.length > 0) {
+                // Cek apakah perlu halaman baru
+                if (doc.y > doc.page.height - 250) {
+                    doc.addPage();
+                }
+
+                doc.strokeColor("#DDDDDD").lineWidth(0.5)
+                   .moveTo(50, doc.y).lineTo(doc.page.width - 50, doc.y).stroke();
+                doc.moveDown(1);
+
+                doc.fontSize(12).font("Helvetica-Bold").fillColor("#000000").text("DOKUMENTASI FOTO");
+                doc.moveDown(0.5);
+
+                var imgX = 50;
+                var imgY = doc.y;
+                var imgWidth = 160;
+                var imgHeight = 120;
+                var imgPerRow = 3;
+                var imgGap = 12;
+                var imgCount = 0;
+
+                data.photos.slice(0, 12).forEach(function(photoPath) {
+                    try {
+                        var ext = path.extname(photoPath).toLowerCase();
+                        // PDFKit supports jpg and png only
+                        if (ext !== ".jpg" && ext !== ".jpeg" && ext !== ".png") return;
+                        if (!fs.existsSync(photoPath)) return;
+
+                        // Cek apakah perlu halaman baru
+                        if (imgY + imgHeight > doc.page.height - 50) {
+                            doc.addPage();
+                            imgY = 50;
+                            imgX = 50;
+                            imgCount = 0;
+                        }
+
+                        doc.image(photoPath, imgX, imgY, { width: imgWidth, height: imgHeight, fit: [imgWidth, imgHeight] });
+
+                        imgCount++;
+                        if (imgCount % imgPerRow === 0) {
+                            imgX = 50;
+                            imgY += imgHeight + imgGap;
+                        } else {
+                            imgX += imgWidth + imgGap;
+                        }
+                    } catch (e) {
+                        // Skip foto yang ga bisa dibaca
+                    }
+                });
+
+                // Move cursor below photos
+                doc.y = imgY + imgHeight + 20;
+            }
+
+            // === FOOTER ===
+            var pageCount = doc.bufferedPageRange().count;
+            for (var i = 0; i < pageCount; i++) {
+                doc.switchToPage(i);
+                doc.fontSize(8).fillColor("#999999")
+                   .text("WA Media Bot - Halaman " + (i + 1) + "/" + pageCount, 50, doc.page.height - 30, { align: "center" });
+            }
+
+            doc.end();
+
+            stream.on("finish", function() {
+                resolve(outputPath);
+            });
+            stream.on("error", function(err) {
+                reject(err);
+            });
+
+        } catch (err) {
+            reject(err);
+        }
+    });
 }
 
 
