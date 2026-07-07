@@ -1404,20 +1404,23 @@ app.post("/api/generate-report", async (req, res) => {
     }).join(NL);
     if (chatText.length > 12000) chatText = chatText.substring(chatText.length - 12000);
 
-    // 5. Prompt - bahasa manusia natural, tanpa markdown
-    var prompt = "Kamu adalah asisten yang membuat laporan progres proyek dari chat WhatsApp grup." + NL;
-    prompt += "Tulis laporan dengan bahasa Indonesia yang NATURAL dan MANUSIAWI - seperti orang sungguhan menulis laporan, bukan seperti robot." + NL;
-    prompt += "Jangan pakai format bullet point kaku. Tulis dalam paragraf yang mengalir, seperti email profesional ke klien." + NL;
-    prompt += "PENTING: JANGAN gunakan format markdown seperti **bold**, *italic*, ##heading, atau simbol formatting lainnya. Tulis plain text saja tanpa formatting apapun." + NL + NL;
+    // 5. Prompt - natural, tanpa markdown, tanpa basa-basi
+    var prompt = "Kamu membuat laporan progres proyek dari chat WhatsApp grup." + NL;
+    prompt += "ATURAN PENTING:" + NL;
+    prompt += "- LANGSUNG tulis isi laporan. JANGAN awali dengan 'Tentu', 'Baik', 'Berikut', 'Ini draf', atau kalimat pembuka apapun." + NL;
+    prompt += "- JANGAN pakai format markdown seperti **bold**, *italic*, ##heading. Tulis plain text saja." + NL;
+    prompt += "- JANGAN buat format surat (Yth, Klien yang terhormat, dll). Langsung ke isi." + NL;
+    prompt += "- Tulis dalam paragraf yang mengalir, natural seperti orang biasa menulis laporan." + NL;
+    prompt += "- Tulis detail dan informatif, minimal 3-4 paragraf." + NL + NL;
     prompt += "Grup: " + group + NL;
     prompt += "Periode: " + startDate + " s/d " + endDt + NL;
     prompt += "Total foto: " + photoCount + ", Video: " + videoCount + ", Dokumen: " + docCount + NL;
     prompt += "Total chat: " + chats.length + " pesan" + NL + NL;
-    prompt += "Buatkan:" + NL;
-    prompt += "1. Paragraf rangkuman aktivitas per hari (tulis natural)" + NL;
-    prompt += "2. Poin-poin keputusan/target jika ada" + NL;
-    prompt += "3. Masalah/kendala yang muncul jika ada" + NL;
-    prompt += "4. Kesimpulan singkat 1-2 kalimat" + NL + NL;
+    prompt += "Buatkan laporan mencakup:" + NL;
+    prompt += "1. Aktivitas yang dilakukan (per area/topik)" + NL;
+    prompt += "2. Keputusan/target jika ada" + NL;
+    prompt += "3. Masalah/kendala jika ada" + NL;
+    prompt += "4. Kesimpulan 1-2 kalimat" + NL + NL;
     prompt += "--- LOG CHAT ---" + NL + chatText;
 
     // 6. Panggil LLM (OpenAI-compatible API with retry + fallback)
