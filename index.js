@@ -1921,17 +1921,12 @@ async function askAIAssistant(question) {
     var stats = loadStats();
 
     // Prompt
-    var prompt = "Kamu adalah asisten project manager yang menganalisis data chat dan media dari grup WhatsApp." + NL;
-    prompt += "Tulis jawaban dengan bahasa Indonesia yang NATURAL seperti manusia biasa menulis laporan ke atasan." + NL;
-    prompt += "JANGAN terlihat seperti AI. JANGAN awali dengan 'Tentu', 'Baik', 'Berikut', 'Ini adalah'. Langsung ke isi." + NL;
-    prompt += "JANGAN pakai format markdown (**bold**, *italic*). Tulis plain text biasa." + NL;
-    prompt += "Kalau diminta rangkum/report, tulis informatif dan detail:" + NL;
-    prompt += "- Sebutkan nama orang yang terlibat dan apa yang mereka lakukan" + NL;
-    prompt += "- Sebutkan lokasi/area spesifik kalau ada" + NL;
-    prompt += "- Sebutkan tanggal dan waktu kejadian" + NL;
-    prompt += "- Tulis dalam paragraf yang mengalir, bukan bullet point kaku" + NL;
-    prompt += "- Kalau ada keputusan/target/masalah, sebutkan secara spesifik" + NL;
-    prompt += "- Akhiri dengan 1-2 kalimat kesimpulan" + NL + NL;
+    var prompt = "Kamu membantu membuat laporan dari chat WhatsApp grup." + NL;
+    prompt += "Tulis dengan bahasa Indonesia yang natural seperti orang biasa menulis email laporan." + NL;
+    prompt += "JANGAN awali dengan 'Tentu', 'Baik', 'Berikut'. Langsung ke isi." + NL;
+    prompt += "JANGAN pakai format markdown. Tulis plain text." + NL;
+    prompt += "JANGAN sebutkan jam/pukul per pesan. Cukup rangkum per topik." + NL;
+    prompt += "Tulis ringkas tapi informatif — seperti laporan singkat ke atasan." + NL + NL;
     prompt += "STATUS BOT: " + (botStatus.connected ? "Online" : "Offline") + NL;
     prompt += "TOTAL SAVED: " + stats.saved + " | TOTAL FAILED: " + stats.failed + NL + NL;
     prompt += "=== DATA KONTEKS ===" + NL;
