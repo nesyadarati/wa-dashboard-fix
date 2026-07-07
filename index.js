@@ -1629,12 +1629,14 @@ async function generateAnswerPDF(outputPath, question, answer) {
                 });
             }
 
-            // === FOOTER: hanya nomor halaman ===
-            var pageCount = doc.bufferedPageRange().count;
-            for (var i = 0; i < pageCount; i++) {
+            // === FOOTER: hanya nomor halaman (no new page trigger) ===
+            var range = doc.bufferedPageRange();
+            for (var i = range.start; i < range.start + range.count; i++) {
                 doc.switchToPage(i);
+                // Pakai absolute position supaya ga trigger new page
+                doc.page.margins.bottom = 0;
                 doc.fontSize(8).font("Helvetica").fillColor("#cccccc")
-                   .text(String(i + 1), 0, doc.page.height - 30, { align: "center" });
+                   .text(String(i + 1), 50, doc.page.height - 25, { width: doc.page.width - 100, align: "center", lineBreak: false });
             }
 
             doc.end();
@@ -1919,16 +1921,17 @@ async function askAIAssistant(question) {
     var stats = loadStats();
 
     // Prompt
-    var prompt = "Kamu adalah AI Assistant untuk WA Media Bot. Kamu punya akses ke semua data media dan chat dari grup-grup WhatsApp." + NL;
-    prompt += "Jawab pertanyaan user dengan bahasa Indonesia yang natural dan friendly." + NL;
-    prompt += "Kalau ditanya sesuatu yang tidak ada datanya, bilang saja tidak tersedia." + NL;
-    prompt += "PENTING: Langsung jawab isinya. JANGAN awali dengan kalimat basa-basi seperti 'Tentu, ini rangkuman...', 'Baik, berikut...', 'Ini adalah...'. Langsung ke inti jawaban." + NL;
-    prompt += "Jawab dengan format yang RAPIH dan mudah dibaca di Telegram:" + NL;
-    prompt += "- Gunakan *bold* untuk judul/poin penting" + NL;
-    prompt += "- Gunakan bullet point (• atau -) untuk list" + NL;
-    prompt += "- Pisahkan bagian dengan baris kosong" + NL;
-    prompt += "- Kalau diminta rangkum, buat per-bagian: Topik, Detail, Kesimpulan" + NL;
-    prompt += "- Jawab SINGKAT tapi TERSTRUKTUR — jangan 1 paragraf panjang" + NL + NL;
+    var prompt = "Kamu adalah asisten project manager yang menganalisis data chat dan media dari grup WhatsApp." + NL;
+    prompt += "Tulis jawaban dengan bahasa Indonesia yang NATURAL seperti manusia biasa menulis laporan ke atasan." + NL;
+    prompt += "JANGAN terlihat seperti AI. JANGAN awali dengan 'Tentu', 'Baik', 'Berikut', 'Ini adalah'. Langsung ke isi." + NL;
+    prompt += "JANGAN pakai format markdown (**bold**, *italic*). Tulis plain text biasa." + NL;
+    prompt += "Kalau diminta rangkum/report, tulis informatif dan detail:" + NL;
+    prompt += "- Sebutkan nama orang yang terlibat dan apa yang mereka lakukan" + NL;
+    prompt += "- Sebutkan lokasi/area spesifik kalau ada" + NL;
+    prompt += "- Sebutkan tanggal dan waktu kejadian" + NL;
+    prompt += "- Tulis dalam paragraf yang mengalir, bukan bullet point kaku" + NL;
+    prompt += "- Kalau ada keputusan/target/masalah, sebutkan secara spesifik" + NL;
+    prompt += "- Akhiri dengan 1-2 kalimat kesimpulan" + NL + NL;
     prompt += "STATUS BOT: " + (botStatus.connected ? "Online" : "Offline") + NL;
     prompt += "TOTAL SAVED: " + stats.saved + " | TOTAL FAILED: " + stats.failed + NL + NL;
     prompt += "=== DATA KONTEKS ===" + NL;
