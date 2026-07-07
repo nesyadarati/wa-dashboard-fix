@@ -1083,10 +1083,16 @@ async function handleCommand(text, chatId) {
         await replyTelegram(chatId, "🧠 Memproses pertanyaan...");
 
         try {
-            var answer = await askAIAssistant(question);
+            // Timeout wrapper - max 90 detik
+            var answer = await Promise.race([
+                askAIAssistant(question),
+                new Promise(function(_, reject) {
+                    setTimeout(function() { reject(new Error("Timeout 90 detik - AI terlalu lama merespon")); }, 90000);
+                })
+            ]);
             await replyTelegram(chatId, answer);
         } catch (err) {
-            await replyTelegram(chatId, "❌ Gagal: " + err.message);
+            await replyTelegram(chatId, "❌ Gagal: " + (err.message || String(err)).substring(0, 200));
         }
         return;
     }
@@ -1395,7 +1401,7 @@ async function callGemini(prompt) {
                         "Content-Type": "application/json",
                         "Authorization": "Bearer " + LLM_API_KEY
                     },
-                    timeout: 60000
+                    timeout: 90000
                 });
 
                 var aiText = "";
@@ -1552,63 +1558,77 @@ async function askAIAssistant(question) {
 
     // Load chat berdasarkan konteks
     if (targetGrup) {
-        // Load FULL chat dari grup tertentu
+        // Load chat dari grup tertentu (max 100 pesan terbaru)
         var logFile = path.join(mediaDir, targetGrup, "chat_history.jsonl");
         if (fs.existsSync(logFile)) {
-            var lines = fs.readFileSync(logFile, "utf8").trim().split(String.fromCharCode(10));
-            var filteredChats = [];
-            lines.forEach(function(line) {
-                try {
-                    var chat = JSON.parse(line);
-                    if (targetDate) {
-                        // Filter by date (support range for "minggu ini")
-                        var chatDate = (chat.time || "").slice(0, 10);
-                        if (chatDate >= targetDate && chatDate <= moment().format("YYYY-MM-DD")) {
-                            filteredChats.push(chat);
-                        }
-                    } else {
-                        filteredChats.push(chat);
+            try {
+                var content = fs.readFileSync(logFile, "utf8").trim();
+                if (content) {
+                    var lines = content.split(String.fromCharCode(10));
+                    var filteredChats = [];
+                    // Baca dari belakang untuk hemat waktu
+                    var startIdx = Math.max(0, lines.length - 500);
+                    for (var li = startIdx; li < lines.length; li++) {
+                        try {
+                            if (!lines[li]) continue;
+                            var chat = JSON.parse(lines[li]);
+                            if (targetDate) {
+                                var chatDate = (chat.time || "").slice(0, 10);
+                                if (chatDate >= targetDate && chatDate <= moment().format("YYYY-MM-DD")) {
+                                    filteredChats.push(chat);
+                                }
+                            } else {
+                                filteredChats.push(chat);
+                            }
+                        } catch (e) {}
                     }
-                } catch (e) {}
-            });
 
-            // Ambil max 200 pesan (atau semua kalau <200)
-            var chatSlice = filteredChats.slice(-200);
-            context += "CHAT GRUP " + targetGrup + (targetDate ? " (dari " + targetDate + ")" : " (terbaru)") + " - " + chatSlice.length + " pesan:" + NL;
-            chatSlice.forEach(function(c) {
-                context += "[" + c.time + "] " + c.sender + ": " + c.message + NL;
-            });
+                    // Ambil max 100 pesan terbaru
+                    var chatSlice = filteredChats.slice(-100);
+                    context += "CHAT GRUP " + targetGrup + (targetDate ? " (dari " + targetDate + ")" : " (terbaru)") + " - " + chatSlice.length + " pesan:" + NL;
+                    chatSlice.forEach(function(c) {
+                        context += "[" + c.time + "] " + c.sender + ": " + c.message + NL;
+                    });
+                }
+            } catch (e) {
+                context += "CHAT GRUP " + targetGrup + ": gagal membaca (" + e.message + ")" + NL;
+            }
         } else {
             context += "CHAT GRUP " + targetGrup + ": belum ada riwayat chat." + NL;
         }
     } else {
-        // Tidak sebut grup spesifik - ambil 50 terbaru dari semua grup
+        // Tidak sebut grup spesifik - ambil 30 terbaru dari semua grup (hemat konteks)
         context += "CHAT TERBARU (semua grup):" + NL;
         var allChats = [];
         grupList.forEach(function(g) {
             var logFile = path.join(mediaDir, g, "chat_history.jsonl");
             if (fs.existsSync(logFile)) {
-                var lines = fs.readFileSync(logFile, "utf8").trim().split(String.fromCharCode(10));
-                var recent = lines.slice(-15);
-                recent.forEach(function(line) {
-                    try {
-                        var chat = JSON.parse(line);
-                        chat._grup = g;
-                        allChats.push(chat);
-                    } catch (e) {}
-                });
+                try {
+                    var content = fs.readFileSync(logFile, "utf8").trim();
+                    if (!content) return;
+                    var lines = content.split(String.fromCharCode(10));
+                    var recent = lines.slice(-8);
+                    recent.forEach(function(line) {
+                        if (!line) return;
+                        try {
+                            var chat = JSON.parse(line);
+                            chat._grup = g;
+                            allChats.push(chat);
+                        } catch (e) {}
+                    });
+                } catch (e) {}
             }
         });
         allChats.sort(function(a, b) { return (b.time || "").localeCompare(a.time || ""); });
-        allChats.slice(0, 50).forEach(function(c) {
+        allChats.slice(0, 30).forEach(function(c) {
             context += "[" + c.time + "] [" + c._grup + "] " + c.sender + ": " + c.message + NL;
         });
     }
     context += NL;
 
-    // Batasi context (Gemini 2.5 flash supports up to 1M tokens, but keep reasonable)
-    if (context.length > 25000) {
-        context = context.substring(context.length - 25000);
+    // Batasi context supaya API tidak terlalu lama
+    if (context.length > 12000) {
+        context = context.substring(context.length - 12000);
     }
 
     // 7. Status bot
