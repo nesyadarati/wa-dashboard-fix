@@ -1167,10 +1167,9 @@ async function handleCommand(text, chatId) {
 
 async function generateChatSummary(groupName, targetDate) {
     var NL = String.fromCharCode(10);
-    var GEMINI_KEY = process.env.GEMINI_API_KEY;
 
-    if (!GEMINI_KEY) {
-        throw new Error("GEMINI_API_KEY belum diset di .env");
+    if (!process.env.LLM_API_KEY || !process.env.LLM_BASE_URL) {
+        throw new Error("LLM_BASE_URL atau LLM_API_KEY belum diset di .env");
     }
 
     // CHECK CACHE FIRST
@@ -1272,8 +1271,7 @@ function getUniqueCount(chats) {
 
 async function generateReport(groupName, startDate, endDate) {
     var NL = String.fromCharCode(10);
-    var GEMINI_KEY = process.env.GEMINI_API_KEY;
-    if (!GEMINI_KEY) throw new Error("GEMINI_API_KEY belum diset di .env");
+    if (!process.env.LLM_API_KEY || !process.env.LLM_BASE_URL) throw new Error("LLM_BASE_URL atau LLM_API_KEY belum diset di .env");
 
     // Baca chat
     var logFile = path.join(__dirname, "WA-MEDIA", groupName, "chat_history.jsonl");
@@ -1365,28 +1363,44 @@ async function generateReport(groupName, startDate, endDate) {
 // ==========================================
 
 async function callGemini(prompt) {
-    var GEMINI_KEY = process.env.GEMINI_API_KEY;
-    if (!GEMINI_KEY) throw new Error("GEMINI_API_KEY belum diset di .env");
+    var LLM_BASE_URL = process.env.LLM_BASE_URL;
+    var LLM_API_KEY = process.env.LLM_API_KEY;
+    var LLM_MODEL = process.env.LLM_MODEL;
+    var LLM_FALLBACK_MODEL = process.env.LLM_FALLBACK_MODEL;
 
-    var models = ["gemini-2.5-flash-lite", "gemini-2.5-flash"];
+    if (!LLM_API_KEY || !LLM_BASE_URL) {
+        throw new Error("LLM_BASE_URL atau LLM_API_KEY belum diset di .env");
+    }
+
+    var models = [LLM_MODEL, LLM_FALLBACK_MODEL].filter(Boolean);
+    if (models.length === 0) throw new Error("LLM_MODEL belum diset di .env");
+
     var lastError = null;
 
     for (var m = 0; m < models.length; m++) {
-        var geminiUrl = "https://generativelanguage.googleapis.com/v1beta/models/" + models[m] + ":generateContent?key=" + GEMINI_KEY;
+        var apiUrl = LLM_BASE_URL.replace(/\/$/, "") + "/chat/completions";
         var maxRetries = 2;
         var retryDelay = 5000;
 
         for (var attempt = 1; attempt <= maxRetries; attempt++) {
             try {
-                var response = await axios.post(geminiUrl, {
-                    contents: [{ parts: [{ text: prompt }] }]
-                }, { headers: { "Content-Type": "application/json" }, timeout: 60000 });
+                var response = await axios.post(apiUrl, {
+                    model: models[m],
+                    messages: [{ role: "user", content: prompt }],
+                    temperature: 0.7
+                }, {
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Authorization": "Bearer " + LLM_API_KEY
+                    },
+                    timeout: 60000
+                });
 
                 var aiText = "";
-                if (response.data.candidates && response.data.candidates[0] && response.data.candidates[0].content) {
-                    aiText = response.data.candidates[0].content.parts[0].text || "";
+                if (response.data.choices && response.data.choices[0] && response.data.choices[0].message) {
+                    aiText = response.data.choices[0].message.content || "";
                 }
-                if (!aiText) throw new Error("Gemini tidak mengembalikan hasil.");
+                if (!aiText) throw new Error("LLM tidak mengembalikan hasil.");
 
                 // TRACK SUCCESS
                 geminiTracker.success++;
@@ -1409,19 +1423,19 @@ async function callGemini(prompt) {
                 geminiTracker.lastError = (err.message || "status " + statusCode).substring(0, 50);
 
                 if ((statusCode === 429 || statusCode === 503) && attempt < maxRetries) {
-                    console.log("Gemini " + models[m] + " rate limited, retry in " + (retryDelay/1000) + "s...");
+                    console.log("LLM " + models[m] + " rate limited, retry in " + (retryDelay/1000) + "s...");
                     await new Promise(function(resolve) { setTimeout(resolve, retryDelay); });
                     retryDelay = retryDelay * 2;
                 } else if (statusCode === 429 || statusCode === 503 || statusCode === 404) {
-                    console.log("Gemini " + models[m] + " failed (" + statusCode + "), trying next model...");
+                    console.log("LLM " + models[m] + " failed (" + statusCode + "), trying next model...");
                     break; // try next model
                 } else {
-                    throw new Error("Gemini API error: " + (err.response ? "status " + statusCode : err.message));
+                    throw new Error("LLM API error: " + (err.response ? "status " + statusCode : err.message));
                 }
             }
         }
     }
-    throw new Error("Semua model Gemini gagal. " + (lastError ? lastError.message : ""));
+    throw new Error("Semua model LLM gagal. " + (lastError ? lastError.message : ""));
 }
 
 
@@ -1431,8 +1445,7 @@ async function callGemini(prompt) {
 
 async function askAIAssistant(question) {
     var NL = String.fromCharCode(10);
-    var GEMINI_KEY = process.env.GEMINI_API_KEY;
-    if (!GEMINI_KEY) throw new Error("GEMINI_API_KEY belum diset di .env");
+    if (!process.env.LLM_API_KEY || !process.env.LLM_BASE_URL) throw new Error("LLM_BASE_URL atau LLM_API_KEY belum diset di .env");
 
     // Kumpulkan konteks data untuk AI
     var context = "";

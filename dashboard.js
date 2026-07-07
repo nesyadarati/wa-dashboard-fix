@@ -1345,8 +1345,11 @@ app.post("/api/generate-report", async (req, res) => {
   const { group, startDate, endDate } = req.body;
   if (!group || !startDate) return res.status(400).json({ error: "Grup dan tanggal wajib diisi" });
 
-  const GEMINI_KEY = process.env.GEMINI_API_KEY;
-  if (!GEMINI_KEY) return res.status(500).json({ error: "GEMINI_API_KEY belum diset di .env" });
+  const LLM_BASE_URL = process.env.LLM_BASE_URL;
+  const LLM_API_KEY = process.env.LLM_API_KEY;
+  const LLM_MODEL = process.env.LLM_MODEL;
+  const LLM_FALLBACK_MODEL = process.env.LLM_FALLBACK_MODEL;
+  if (!LLM_API_KEY || !LLM_BASE_URL) return res.status(500).json({ error: "LLM_BASE_URL atau LLM_API_KEY belum diset di .env" });
 
   try {
     var NL = String.fromCharCode(10);
@@ -1416,22 +1419,30 @@ app.post("/api/generate-report", async (req, res) => {
     prompt += "4. Kesimpulan singkat 1-2 kalimat" + NL + NL;
     prompt += "--- LOG CHAT ---" + NL + chatText;
 
-    // 6. Panggil Gemini (with retry + fallback)
+    // 6. Panggil LLM (OpenAI-compatible API with retry + fallback)
     var axios = require("axios");
-    var models = ["gemini-2.5-flash-lite", "gemini-2.5-flash"];
+    var models = [LLM_MODEL, LLM_FALLBACK_MODEL].filter(Boolean);
     var aiText = "";
     var lastErr = null;
 
     for (var mi = 0; mi < models.length; mi++) {
-      var geminiUrl = "https://generativelanguage.googleapis.com/v1beta/models/" + models[mi] + ":generateContent?key=" + GEMINI_KEY;
+      var apiUrl = LLM_BASE_URL.replace(/\/$/, "") + "/chat/completions";
       for (var attempt = 0; attempt < 2; attempt++) {
         try {
-          var aiResponse = await axios.post(geminiUrl, {
-            contents: [{ parts: [{ text: prompt }] }]
-          }, { headers: { "Content-Type": "application/json" }, timeout: 60000 });
+          var aiResponse = await axios.post(apiUrl, {
+            model: models[mi],
+            messages: [{ role: "user", content: prompt }],
+            temperature: 0.7
+          }, {
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": "Bearer " + LLM_API_KEY
+            },
+            timeout: 60000
+          });
 
-          if (aiResponse.data.candidates && aiResponse.data.candidates[0] && aiResponse.data.candidates[0].content) {
-            aiText = aiResponse.data.candidates[0].content.parts[0].text || "";
+          if (aiResponse.data.choices && aiResponse.data.choices[0] && aiResponse.data.choices[0].message) {
+            aiText = aiResponse.data.choices[0].message.content || "";
           }
           if (aiText) break;
         } catch (gemErr) {
@@ -1450,7 +1461,7 @@ app.post("/api/generate-report", async (req, res) => {
     }
 
     if (!aiText) {
-      return res.status(500).json({ error: "Gemini API gagal: " + (lastErr ? (lastErr.response ? "status " + lastErr.response.status : lastErr.message) : "no response") });
+      return res.status(500).json({ error: "LLM API gagal: " + (lastErr ? (lastErr.response ? "status " + lastErr.response.status : lastErr.message) : "no response") });
     }
 
     // 7. Pilih highlight photos (max 12, spread across days)
