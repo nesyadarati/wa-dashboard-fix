@@ -1424,14 +1424,15 @@ async function generateAnswerPDF(outputPath, question, answer) {
             doc.pipe(stream);
 
             var pageWidth = doc.page.width - 100;
+            var NL = String.fromCharCode(10);
 
-            // Deteksi grup dari pertanyaan untuk ambil foto
+            // === DETEKSI GRUP & TANGGAL ===
             var mediaDir = path.join(__dirname, "WA-MEDIA");
             var grupList = [];
             try {
                 if (fs.existsSync(mediaDir)) {
                     grupList = fs.readdirSync(mediaDir).filter(function(item) {
-                        return fs.statSync(path.join(mediaDir, item)).isDirectory();
+                        try { return fs.statSync(path.join(mediaDir, item)).isDirectory(); } catch(e) { return false; }
                     });
                 }
             } catch (e) {}
@@ -1439,19 +1440,13 @@ async function generateAnswerPDF(outputPath, question, answer) {
             var detectedGrup = null;
             var questionLower = question.toLowerCase();
             grupList.forEach(function(g) {
-                if (questionLower.indexOf(g.toLowerCase()) !== -1) {
-                    detectedGrup = g;
-                }
-                // Partial match (misal "bandung" cocok ke "Podomoro Park Bandung")
+                if (questionLower.indexOf(g.toLowerCase()) !== -1) detectedGrup = g;
                 var words = g.toLowerCase().split(" ");
                 words.forEach(function(w) {
-                    if (w.length > 4 && questionLower.indexOf(w) !== -1 && !detectedGrup) {
-                        detectedGrup = g;
-                    }
+                    if (w.length > 4 && questionLower.indexOf(w) !== -1 && !detectedGrup) detectedGrup = g;
                 });
             });
 
-            // Deteksi tanggal dari pertanyaan
             var targetDate = null;
             if (questionLower.indexOf("hari ini") !== -1 || questionLower.indexOf("today") !== -1) {
                 targetDate = moment().format("YYYY-MM-DD");
@@ -1463,13 +1458,11 @@ async function generateAnswerPDF(outputPath, question, answer) {
             var dateMatch = question.match(/\d{4}-\d{2}-\d{2}/);
             if (dateMatch) targetDate = dateMatch[0];
             if (!targetDate) targetDate = moment().subtract(7, "days").format("YYYY-MM-DD");
-
             var endDate = moment().format("YYYY-MM-DD");
 
-            // Kumpulkan foto dari grup
+            // === KUMPULKAN FOTO ===
             var photos = [];
             if (detectedGrup) {
-                var grupDir = path.join(mediaDir, detectedGrup);
                 function findPhotos(dir) {
                     if (!fs.existsSync(dir)) return;
                     try {
@@ -1478,7 +1471,7 @@ async function generateAnswerPDF(outputPath, question, answer) {
                             var full = path.join(dir, item);
                             try {
                                 var stat = fs.statSync(full);
-                                if (stat.isDirectory()) { findPhotos(full); }
+                                if (stat.isDirectory()) findPhotos(full);
                                 else {
                                     var ext = path.extname(item).toLowerCase();
                                     if ([".jpg", ".jpeg", ".png"].indexOf(ext) !== -1) {
@@ -1492,39 +1485,14 @@ async function generateAnswerPDF(outputPath, question, answer) {
                         });
                     } catch (e) {}
                 }
-                findPhotos(grupDir);
-                // Sort by date desc, max 12 foto
+                findPhotos(path.join(mediaDir, detectedGrup));
                 photos.sort(function(a, b) { return b.date.localeCompare(a.date); });
                 photos = photos.slice(0, 12);
             }
 
-            // === HEADER ===
-            doc.fontSize(20).font("Helvetica-Bold").text("LAPORAN", { align: "center" });
-            doc.moveDown(0.2);
+            // === HITUNG STATISTIK ===
+            var totalImg = 0, totalVid = 0, totalDoc = 0;
             if (detectedGrup) {
-                doc.fontSize(14).font("Helvetica").text(detectedGrup, { align: "center" });
-                doc.moveDown(0.2);
-            }
-            doc.fontSize(10).fillColor("#666666").text(moment().format("DD MMMM YYYY, HH:mm"), { align: "center" });
-            if (targetDate) {
-                doc.text("Periode: " + targetDate + " s/d " + endDate, { align: "center" });
-            }
-            doc.moveDown(0.5);
-
-            // Garis hijau
-            doc.strokeColor("#25D366").lineWidth(2)
-               .moveTo(50, doc.y).lineTo(doc.page.width - 50, doc.y).stroke();
-            doc.moveDown(1);
-
-            // === STATISTIK (jika ada grup terdeteksi) ===
-            if (detectedGrup) {
-                doc.fontSize(12).font("Helvetica-Bold").fillColor("#000000").text("STATISTIK");
-                doc.moveDown(0.4);
-                doc.fontSize(10).font("Helvetica").fillColor("#333333");
-                doc.text("Foto dalam periode: " + photos.length + " file");
-
-                // Hitung total media
-                var totalImg = 0, totalVid = 0, totalDoc = 0;
                 function countAll(dir) {
                     if (!fs.existsSync(dir)) return;
                     try {
@@ -1548,84 +1516,197 @@ async function generateAnswerPDF(outputPath, question, answer) {
                     } catch (e) {}
                 }
                 countAll(path.join(mediaDir, detectedGrup));
-                doc.text("Gambar: " + totalImg + "  |  Video/Audio: " + totalVid + "  |  Dokumen: " + totalDoc);
-                doc.moveDown(1);
-
-                doc.strokeColor("#DDDDDD").lineWidth(0.5)
-                   .moveTo(50, doc.y).lineTo(doc.page.width - 50, doc.y).stroke();
-                doc.moveDown(1);
             }
 
-            // === RANGKUMAN AI ===
-            doc.fontSize(12).font("Helvetica-Bold").fillColor("#000000").text("RANGKUMAN");
-            doc.moveDown(0.5);
-
+            // === BERSIHKAN TEKS AI ===
             var cleanAnswer = (answer || "")
                 .replace(/━+/g, "")
                 .replace(/🧠 \*AI ASSISTANT\*/g, "")
-                .replace(/❓ _.*?_/g, "")
+                .replace(/❓ _.*?_\n?/g, "")
+                .replace(/\*\*([^*]+)\*\*/g, "$1")
                 .replace(/\*([^*]+)\*/g, "$1")
                 .replace(/_([^_]+)_/g, "$1")
                 .replace(/`([^`]+)`/g, "$1")
+                .replace(/^#{1,3}\s*/gm, "")
+                .replace(/^\s*[-•]\s*/gm, "  - ")
                 .trim();
 
-            doc.fontSize(10).font("Helvetica").fillColor("#333333");
-            var answerLines = cleanAnswer.split(String.fromCharCode(10));
-            answerLines.forEach(function(line) {
-                if (line.trim()) {
-                    doc.text(line.trim(), { width: pageWidth, align: "left" });
-                    doc.moveDown(0.2);
-                } else {
-                    doc.moveDown(0.4);
+            // Pisahkan jadi sections
+            var sections = [];
+            var currentSection = { title: "", lines: [] };
+            cleanAnswer.split(NL).forEach(function(line) {
+                var trimmed = line.trim();
+                // Deteksi judul section (UPPERCASE atau diawali angka + titik)
+                if (/^[A-Z\s&]{4,}:?$/.test(trimmed) || /^\d+\.\s*[A-Z]/.test(trimmed)) {
+                    if (currentSection.lines.length > 0 || currentSection.title) {
+                        sections.push(currentSection);
+                    }
+                    currentSection = { title: trimmed.replace(/:$/, ""), lines: [] };
+                } else if (trimmed) {
+                    currentSection.lines.push(trimmed);
                 }
             });
+            if (currentSection.lines.length > 0 || currentSection.title) {
+                sections.push(currentSection);
+            }
 
-            // === DOKUMENTASI FOTO ===
+            // ==========================
+            // MULAI RENDER PDF
+            // ==========================
+
+            // === HALAMAN 1: COVER + STATISTIK ===
+            doc.moveDown(3);
+            doc.fontSize(28).font("Helvetica-Bold").fillColor("#1a1a1a")
+               .text("LAPORAN PROYEK", { align: "center" });
+            doc.moveDown(0.5);
+
+            if (detectedGrup) {
+                doc.fontSize(16).font("Helvetica").fillColor("#333333")
+                   .text(detectedGrup, { align: "center" });
+            }
+            doc.moveDown(0.8);
+
+            // Garis hijau tebal
+            doc.strokeColor("#25D366").lineWidth(3)
+               .moveTo(150, doc.y).lineTo(doc.page.width - 150, doc.y).stroke();
+            doc.moveDown(1.5);
+
+            // Info periode
+            doc.fontSize(11).font("Helvetica").fillColor("#666666")
+               .text("Periode: " + targetDate + " s/d " + endDate, { align: "center" });
+            doc.text("Dibuat: " + moment().format("DD MMMM YYYY, HH:mm"), { align: "center" });
+            doc.moveDown(2);
+
+            // Box statistik
+            if (detectedGrup) {
+                var boxY = doc.y;
+                var boxHeight = 80;
+                doc.roundedRect(80, boxY, doc.page.width - 160, boxHeight, 8)
+                   .fillAndStroke("#f8f9fa", "#e0e0e0");
+
+                doc.fontSize(9).font("Helvetica").fillColor("#666666")
+                   .text("STATISTIK MEDIA", 0, boxY + 12, { align: "center" });
+
+                var colWidth = (doc.page.width - 160) / 3;
+                var statY = boxY + 32;
+
+                doc.fontSize(22).font("Helvetica-Bold").fillColor("#25D366")
+                   .text(String(totalImg), 80, statY, { width: colWidth, align: "center" });
+                doc.fontSize(9).font("Helvetica").fillColor("#666666")
+                   .text("Gambar", 80, statY + 25, { width: colWidth, align: "center" });
+
+                doc.fontSize(22).font("Helvetica-Bold").fillColor("#4A90D9")
+                   .text(String(totalVid), 80 + colWidth, statY, { width: colWidth, align: "center" });
+                doc.fontSize(9).font("Helvetica").fillColor("#666666")
+                   .text("Video/Audio", 80 + colWidth, statY + 25, { width: colWidth, align: "center" });
+
+                doc.fontSize(22).font("Helvetica-Bold").fillColor("#D4A029")
+                   .text(String(totalDoc), 80 + colWidth * 2, statY, { width: colWidth, align: "center" });
+                doc.fontSize(9).font("Helvetica").fillColor("#666666")
+                   .text("Dokumen", 80 + colWidth * 2, statY + 25, { width: colWidth, align: "center" });
+
+                doc.y = boxY + boxHeight + 20;
+            }
+
+            // === HALAMAN 2: RANGKUMAN ===
+            doc.addPage();
+
+            doc.fontSize(14).font("Helvetica-Bold").fillColor("#1a1a1a")
+               .text("RANGKUMAN", 50, 50);
+            doc.moveDown(0.3);
+            doc.strokeColor("#25D366").lineWidth(2)
+               .moveTo(50, doc.y).lineTo(150, doc.y).stroke();
+            doc.moveDown(1);
+
+            // Render sections
+            if (sections.length > 0) {
+                sections.forEach(function(section) {
+                    // Cek perlu halaman baru
+                    if (doc.y > doc.page.height - 100) doc.addPage();
+
+                    if (section.title) {
+                        doc.fontSize(11).font("Helvetica-Bold").fillColor("#1a1a1a")
+                           .text(section.title, { width: pageWidth });
+                        doc.moveDown(0.4);
+                    }
+
+                    section.lines.forEach(function(line) {
+                        if (doc.y > doc.page.height - 60) doc.addPage();
+                        doc.fontSize(10).font("Helvetica").fillColor("#333333")
+                           .text(line, { width: pageWidth, lineGap: 3 });
+                        doc.moveDown(0.2);
+                    });
+                    doc.moveDown(0.8);
+                });
+            } else {
+                // Fallback: render as plain paragraphs
+                cleanAnswer.split(NL).forEach(function(line) {
+                    if (doc.y > doc.page.height - 60) doc.addPage();
+                    if (line.trim()) {
+                        doc.fontSize(10).font("Helvetica").fillColor("#333333")
+                           .text(line.trim(), { width: pageWidth, lineGap: 3 });
+                        doc.moveDown(0.3);
+                    } else {
+                        doc.moveDown(0.6);
+                    }
+                });
+            }
+
+            // === HALAMAN FOTO ===
             if (photos.length > 0) {
-                // Halaman baru untuk foto
                 doc.addPage();
 
-                doc.fontSize(14).font("Helvetica-Bold").fillColor("#000000").text("DOKUMENTASI FOTO", { align: "center" });
+                doc.fontSize(14).font("Helvetica-Bold").fillColor("#1a1a1a")
+                   .text("DOKUMENTASI FOTO", 50, 50);
                 doc.moveDown(0.3);
-                doc.fontSize(9).font("Helvetica").fillColor("#666666").text(photos.length + " foto dari " + (detectedGrup || "grup"), { align: "center" });
+                doc.strokeColor("#25D366").lineWidth(2)
+                   .moveTo(50, doc.y).lineTo(150, doc.y).stroke();
+                doc.moveDown(0.3);
+                doc.fontSize(9).font("Helvetica").fillColor("#666666")
+                   .text(photos.length + " foto  |  " + (detectedGrup || "grup") + "  |  " + targetDate + " s/d " + endDate);
                 doc.moveDown(1);
 
-                var imgX = 50;
+                // Layout foto: 2 kolom, ukuran konsisten
+                var imgWidth = 230;
+                var imgHeight = 170;
+                var imgGap = 20;
+                var startX = 55;
+                var imgX = startX;
                 var imgY = doc.y;
-                var imgWidth = 240;
-                var imgHeight = 180;
-                var imgPerRow = 2;
-                var imgGap = 15;
-                var imgCount = 0;
+                var col = 0;
 
-                photos.forEach(function(photo) {
+                photos.forEach(function(photo, idx) {
                     try {
                         if (!fs.existsSync(photo.path)) return;
 
                         // Cek perlu halaman baru
-                        if (imgY + imgHeight > doc.page.height - 60) {
+                        if (imgY + imgHeight + 20 > doc.page.height - 50) {
                             doc.addPage();
                             imgY = 50;
-                            imgX = 50;
-                            imgCount = 0;
+                            imgX = startX;
+                            col = 0;
                         }
 
-                        doc.image(photo.path, imgX, imgY, { fit: [imgWidth, imgHeight] });
+                        // Border kotak foto
+                        doc.roundedRect(imgX - 3, imgY - 3, imgWidth + 6, imgHeight + 6, 4)
+                           .stroke("#e0e0e0");
 
-                        // Label tanggal di bawah foto
-                        doc.fontSize(7).fillColor("#999999")
-                           .text(photo.date, imgX, imgY + imgHeight + 2, { width: imgWidth, align: "center" });
+                        // Foto
+                        doc.image(photo.path, imgX, imgY, { fit: [imgWidth, imgHeight], align: "center", valign: "center" });
 
-                        imgCount++;
-                        if (imgCount % imgPerRow === 0) {
-                            imgX = 50;
-                            imgY += imgHeight + imgGap + 12;
+                        // Label tanggal
+                        doc.fontSize(7).font("Helvetica").fillColor("#999999")
+                           .text(photo.date, imgX, imgY + imgHeight + 8, { width: imgWidth, align: "center" });
+
+                        col++;
+                        if (col >= 2) {
+                            col = 0;
+                            imgX = startX;
+                            imgY += imgHeight + 35;
                         } else {
                             imgX += imgWidth + imgGap;
                         }
-                    } catch (e) {
-                        // Skip foto yang ga bisa dibaca
-                    }
+                    } catch (e) {}
                 });
             }
 
@@ -1633,8 +1714,15 @@ async function generateAnswerPDF(outputPath, question, answer) {
             var pageCount = doc.bufferedPageRange().count;
             for (var i = 0; i < pageCount; i++) {
                 doc.switchToPage(i);
-                doc.fontSize(8).fillColor("#999999")
-                   .text("WA Media Bot - Hal " + (i + 1) + "/" + pageCount, 50, doc.page.height - 30, { align: "center" });
+
+                // Garis footer
+                doc.strokeColor("#e0e0e0").lineWidth(0.5)
+                   .moveTo(50, doc.page.height - 40).lineTo(doc.page.width - 50, doc.page.height - 40).stroke();
+
+                doc.fontSize(8).font("Helvetica").fillColor("#999999")
+                   .text("WA Media Bot", 50, doc.page.height - 30);
+                doc.fontSize(8).font("Helvetica").fillColor("#999999")
+                   .text("Hal " + (i + 1) + " / " + pageCount, doc.page.width - 100, doc.page.height - 30, { width: 50, align: "right" });
             }
 
             doc.end();
