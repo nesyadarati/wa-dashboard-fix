@@ -1486,7 +1486,37 @@ async function generateAnswerPDF(outputPath, question, answer) {
                     } catch (e) {}
                 }
                 findPhotos(path.join(mediaDir, detectedGrup));
-                photos.sort(function(a, b) { return b.date.localeCompare(a.date); });
+
+                // Prioritaskan foto yang relevan (dari sender yang aktif di chat)
+                // Ambil sender numbers dari chat hari itu
+                var chatSenders = [];
+                try {
+                    var chatLogFile = path.join(mediaDir, detectedGrup, "chat_history.jsonl");
+                    if (fs.existsSync(chatLogFile)) {
+                        var chatContent = fs.readFileSync(chatLogFile, "utf8").trim();
+                        var chatLines = chatContent.split(String.fromCharCode(10));
+                        chatLines.slice(-200).forEach(function(line) {
+                            try {
+                                var chat = JSON.parse(line);
+                                var chatDate = (chat.time || "").slice(0, 10);
+                                if (chatDate >= targetDate && chatDate <= endDate && chat.number) {
+                                    if (chatSenders.indexOf(chat.number) === -1) chatSenders.push(chat.number);
+                                }
+                            } catch(e) {}
+                        });
+                    }
+                } catch(e) {}
+
+                // Sort: foto dari sender aktif di chat diutamakan
+                photos.sort(function(a, b) {
+                    var aName = path.basename(a.path);
+                    var bName = path.basename(b.path);
+                    var aMatch = chatSenders.some(function(s) { return aName.indexOf(s) !== -1; });
+                    var bMatch = chatSenders.some(function(s) { return bName.indexOf(s) !== -1; });
+                    if (aMatch && !bMatch) return -1;
+                    if (!aMatch && bMatch) return 1;
+                    return b.date.localeCompare(a.date);
+                });
                 photos = photos.slice(0, 12);
             }
 
@@ -1922,11 +1952,18 @@ async function askAIAssistant(question) {
 
     // Prompt
     var prompt = "Kamu membantu membuat laporan dari chat WhatsApp grup." + NL;
-    prompt += "Tulis dengan bahasa Indonesia yang natural seperti orang biasa menulis email laporan." + NL;
+    prompt += "Tulis dengan bahasa Indonesia yang natural seperti orang biasa menulis email laporan ke atasan." + NL;
     prompt += "JANGAN awali dengan 'Tentu', 'Baik', 'Berikut'. Langsung ke isi." + NL;
     prompt += "JANGAN pakai format markdown. Tulis plain text." + NL;
-    prompt += "JANGAN sebutkan jam/pukul per pesan. Cukup rangkum per topik." + NL;
-    prompt += "Tulis ringkas tapi informatif — seperti laporan singkat ke atasan." + NL + NL;
+    prompt += "JANGAN sebutkan jam/pukul per pesan. Rangkum per topik/aktivitas." + NL;
+    prompt += "Tulis DETAIL dan LENGKAP — minimal 3-5 paragraf. Jelaskan:" + NL;
+    prompt += "- Aktivitas apa saja yang dilakukan hari itu" + NL;
+    prompt += "- Siapa saja yang terlibat dan perannya" + NL;
+    prompt += "- Area/lokasi pekerjaan yang dibahas" + NL;
+    prompt += "- Keputusan atau target yang disepakati" + NL;
+    prompt += "- Kendala/masalah jika ada" + NL;
+    prompt += "- Progress keseluruhan" + NL;
+    prompt += "Akhiri dengan kesimpulan 1-2 kalimat." + NL + NL;
     prompt += "STATUS BOT: " + (botStatus.connected ? "Online" : "Offline") + NL;
     prompt += "TOTAL SAVED: " + stats.saved + " | TOTAL FAILED: " + stats.failed + NL + NL;
     prompt += "=== DATA KONTEKS ===" + NL;
