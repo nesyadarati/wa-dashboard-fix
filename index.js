@@ -1225,7 +1225,7 @@ async function generateChatSummary(groupName, targetDate) {
         chatText = chatText.substring(chatText.length - 15000);
     }
 
-    // Prompt untuk Gemini
+    // Prompt untuk LLM
     var prompt = "Kamu adalah asisten yang merangkum percakapan grup WhatsApp. Berikut adalah log chat grup '" + groupName + "' pada tanggal " + targetDate + "." + String.fromCharCode(10) + String.fromCharCode(10);
     prompt += "Buatkan rangkuman dalam Bahasa Indonesia dengan format:" + String.fromCharCode(10);
     prompt += "1. TOPIK UTAMA - apa saja yang dibahas" + String.fromCharCode(10);
@@ -1233,7 +1233,8 @@ async function generateChatSummary(groupName, targetDate) {
     prompt += "3. KEPUTUSAN - keputusan yang diambil" + String.fromCharCode(10);
     prompt += "4. HIGHLIGHT - hal penting/menarik" + String.fromCharCode(10);
     prompt += "5. KESIMPULAN - rangkuman singkat 1-2 kalimat" + String.fromCharCode(10) + String.fromCharCode(10);
-    prompt += "Jika salah satu bagian tidak ada, skip saja. Tulis ringkas dan padat." + String.fromCharCode(10) + String.fromCharCode(10);
+    prompt += "Jika salah satu bagian tidak ada, skip saja. Tulis ringkas dan padat." + String.fromCharCode(10);
+    prompt += "PENTING: JANGAN gunakan format markdown seperti **bold**, *italic*, ##heading, atau simbol formatting lainnya. Tulis plain text saja." + String.fromCharCode(10) + String.fromCharCode(10);
     prompt += "--- LOG CHAT ---" + String.fromCharCode(10);
     prompt += chatText;
 
@@ -1324,7 +1325,8 @@ async function generateReport(groupName, startDate, endDate) {
     // Prompt - bahasa manusia, ringkas untuk dibaca cepat
     var prompt = "Kamu membantu seorang project manager membuat laporan ringkas dari chat WhatsApp grup proyek." + NL;
     prompt += "Tulis dalam Bahasa Indonesia yang NATURAL - seperti kamu cerita ke teman soal apa yang terjadi." + NL;
-    prompt += "Jangan pakai format kaku atau robot. Tulis singkat, padat, mudah dibaca dalam 30 detik." + NL + NL;
+    prompt += "Jangan pakai format kaku atau robot. Tulis singkat, padat, mudah dibaca dalam 30 detik." + NL;
+    prompt += "PENTING: JANGAN gunakan format markdown seperti **bold**, *italic*, ##heading, atau simbol formatting lainnya. Tulis plain text saja." + NL + NL;
     prompt += "Grup: " + groupName + NL;
     prompt += "Periode: " + startDate + " s/d " + endDate + NL + NL;
     prompt += "Buatkan laporan ringkas mencakup:" + NL;

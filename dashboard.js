@@ -1404,10 +1404,11 @@ app.post("/api/generate-report", async (req, res) => {
     }).join(NL);
     if (chatText.length > 12000) chatText = chatText.substring(chatText.length - 12000);
 
-    // 5. Prompt Gemini - bahasa manusia natural
+    // 5. Prompt - bahasa manusia natural, tanpa markdown
     var prompt = "Kamu adalah asisten yang membuat laporan progres proyek dari chat WhatsApp grup." + NL;
     prompt += "Tulis laporan dengan bahasa Indonesia yang NATURAL dan MANUSIAWI - seperti orang sungguhan menulis laporan, bukan seperti robot." + NL;
-    prompt += "Jangan pakai format bullet point kaku. Tulis dalam paragraf yang mengalir, seperti email profesional ke klien." + NL + NL;
+    prompt += "Jangan pakai format bullet point kaku. Tulis dalam paragraf yang mengalir, seperti email profesional ke klien." + NL;
+    prompt += "PENTING: JANGAN gunakan format markdown seperti **bold**, *italic*, ##heading, atau simbol formatting lainnya. Tulis plain text saja tanpa formatting apapun." + NL + NL;
     prompt += "Grup: " + group + NL;
     prompt += "Periode: " + startDate + " s/d " + endDt + NL;
     prompt += "Total foto: " + photoCount + ", Video: " + videoCount + ", Dokumen: " + docCount + NL;
