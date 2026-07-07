@@ -1368,7 +1368,7 @@ async function callGemini(prompt) {
     var GEMINI_KEY = process.env.GEMINI_API_KEY;
     if (!GEMINI_KEY) throw new Error("GEMINI_API_KEY belum diset di .env");
 
-    var models = ["gemini-2.0-flash-lite", "gemini-2.5-flash"];
+    var models = ["gemini-2.5-flash-lite", "gemini-2.5-flash"];
     var lastError = null;
 
     for (var m = 0; m < models.length; m++) {

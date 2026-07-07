@@ -1418,7 +1418,7 @@ app.post("/api/generate-report", async (req, res) => {
 
     // 6. Panggil Gemini (with retry + fallback)
     var axios = require("axios");
-    var models = ["gemini-2.0-flash-lite", "gemini-2.5-flash"];
+    var models = ["gemini-2.5-flash-lite", "gemini-2.5-flash"];
     var aiText = "";
     var lastErr = null;
 
