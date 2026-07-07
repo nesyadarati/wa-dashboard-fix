@@ -1490,34 +1490,6 @@ async function generateAnswerPDF(outputPath, question, answer) {
                 photos = photos.slice(0, 12);
             }
 
-            // === HITUNG STATISTIK ===
-            var totalImg = 0, totalVid = 0, totalDoc = 0;
-            if (detectedGrup) {
-                function countAll(dir) {
-                    if (!fs.existsSync(dir)) return;
-                    try {
-                        var items = fs.readdirSync(dir);
-                        items.forEach(function(item) {
-                            var full = path.join(dir, item);
-                            try {
-                                var stat = fs.statSync(full);
-                                if (stat.isDirectory()) countAll(full);
-                                else {
-                                    var fileDate = stat.mtime.toISOString().slice(0, 10);
-                                    if (fileDate >= targetDate && fileDate <= endDate) {
-                                        var ext = path.extname(item).toLowerCase();
-                                        if ([".jpg",".jpeg",".png",".webp"].indexOf(ext) !== -1) totalImg++;
-                                        else if ([".mp4",".mov",".mkv",".mp3",".opus",".wav"].indexOf(ext) !== -1) totalVid++;
-                                        else if (item !== "chat_history.jsonl") totalDoc++;
-                                    }
-                                }
-                            } catch (e) {}
-                        });
-                    } catch (e) {}
-                }
-                countAll(path.join(mediaDir, detectedGrup));
-            }
-
             // === BERSIHKAN TEKS AI ===
             var cleanAnswer = (answer || "")
                 .replace(/━+/g, "")
@@ -1531,142 +1503,93 @@ async function generateAnswerPDF(outputPath, question, answer) {
                 .replace(/^\s*[-•]\s*/gm, "  - ")
                 .trim();
 
-            // Pisahkan jadi sections
-            var sections = [];
-            var currentSection = { title: "", lines: [] };
-            cleanAnswer.split(NL).forEach(function(line) {
-                var trimmed = line.trim();
-                // Deteksi judul section (UPPERCASE atau diawali angka + titik)
-                if (/^[A-Z\s&]{4,}:?$/.test(trimmed) || /^\d+\.\s*[A-Z]/.test(trimmed)) {
-                    if (currentSection.lines.length > 0 || currentSection.title) {
-                        sections.push(currentSection);
-                    }
-                    currentSection = { title: trimmed.replace(/:$/, ""), lines: [] };
-                } else if (trimmed) {
-                    currentSection.lines.push(trimmed);
+            // Hapus baris pembuka AI (Tentu, Baik, Berikut, dll)
+            var cleanLines = cleanAnswer.split(NL);
+            while (cleanLines.length > 0) {
+                var firstLine = cleanLines[0].toLowerCase().trim();
+                if (!firstLine || firstLine.startsWith("tentu") || firstLine.startsWith("baik") || firstLine.startsWith("berikut") || firstLine.startsWith("ini adalah") || firstLine.startsWith("ini rangkuman") || firstLine.startsWith("oke") || firstLine.startsWith("sure")) {
+                    cleanLines.shift();
+                } else {
+                    break;
                 }
-            });
-            if (currentSection.lines.length > 0 || currentSection.title) {
-                sections.push(currentSection);
             }
+            cleanAnswer = cleanLines.join(NL).trim();
 
             // ==========================
-            // MULAI RENDER PDF
+            // RENDER PDF
             // ==========================
 
-            // === HALAMAN 1: COVER + STATISTIK ===
-            doc.moveDown(3);
-            doc.fontSize(28).font("Helvetica-Bold").fillColor("#1a1a1a")
+            // === HEADER (compact) ===
+            doc.moveDown(1);
+            doc.fontSize(24).font("Helvetica-Bold").fillColor("#1a1a1a")
                .text("LAPORAN PROYEK", { align: "center" });
-            doc.moveDown(0.5);
+            doc.moveDown(0.3);
 
             if (detectedGrup) {
-                doc.fontSize(16).font("Helvetica").fillColor("#333333")
+                doc.fontSize(14).font("Helvetica").fillColor("#333333")
                    .text(detectedGrup, { align: "center" });
             }
-            doc.moveDown(0.8);
+            doc.moveDown(0.5);
 
-            // Garis hijau tebal
-            doc.strokeColor("#25D366").lineWidth(3)
+            // Garis hijau
+            doc.strokeColor("#25D366").lineWidth(2)
                .moveTo(150, doc.y).lineTo(doc.page.width - 150, doc.y).stroke();
+            doc.moveDown(0.6);
+
+            // Periode & tanggal (tanpa jam)
+            doc.fontSize(10).font("Helvetica").fillColor("#666666")
+               .text("Periode: " + targetDate + " s/d " + endDate, { align: "center" });
+            doc.text("Dibuat: " + moment().format("DD MMMM YYYY"), { align: "center" });
             doc.moveDown(1.5);
 
-            // Info periode
-            doc.fontSize(11).font("Helvetica").fillColor("#666666")
-               .text("Periode: " + targetDate + " s/d " + endDate, { align: "center" });
-            doc.text("Dibuat: " + moment().format("DD MMMM YYYY, HH:mm"), { align: "center" });
-            doc.moveDown(2);
+            // === RANGKUMAN langsung di bawah ===
+            doc.fontSize(13).font("Helvetica-Bold").fillColor("#1a1a1a")
+               .text("RANGKUMAN");
+            doc.moveDown(0.2);
+            doc.strokeColor("#25D366").lineWidth(1.5)
+               .moveTo(50, doc.y).lineTo(130, doc.y).stroke();
+            doc.moveDown(0.8);
 
-            // Box statistik
-            if (detectedGrup) {
-                var boxY = doc.y;
-                var boxHeight = 80;
-                doc.roundedRect(80, boxY, doc.page.width - 160, boxHeight, 8)
-                   .fillAndStroke("#f8f9fa", "#e0e0e0");
+            // Render rangkuman
+            var answerLines = cleanAnswer.split(NL);
+            answerLines.forEach(function(line) {
+                if (doc.y > doc.page.height - 70) doc.addPage();
 
-                doc.fontSize(9).font("Helvetica").fillColor("#666666")
-                   .text("STATISTIK MEDIA", 0, boxY + 12, { align: "center" });
+                var trimmed = line.trim();
+                if (!trimmed) {
+                    doc.moveDown(0.5);
+                    return;
+                }
 
-                var colWidth = (doc.page.width - 160) / 3;
-                var statY = boxY + 32;
+                // Deteksi heading (UPPERCASE pendek atau diawali angka)
+                var isHeading = (/^[A-Z][A-Z\s&\/]{3,}:?$/.test(trimmed)) || (/^\d+\.\s*[A-Z]/.test(trimmed) && trimmed.length < 60);
 
-                doc.fontSize(22).font("Helvetica-Bold").fillColor("#25D366")
-                   .text(String(totalImg), 80, statY, { width: colWidth, align: "center" });
-                doc.fontSize(9).font("Helvetica").fillColor("#666666")
-                   .text("Gambar", 80, statY + 25, { width: colWidth, align: "center" });
+                if (isHeading) {
+                    doc.moveDown(0.4);
+                    doc.fontSize(11).font("Helvetica-Bold").fillColor("#1a1a1a")
+                       .text(trimmed, { width: pageWidth });
+                    doc.moveDown(0.3);
+                } else {
+                    doc.fontSize(10).font("Helvetica").fillColor("#333333")
+                       .text(trimmed, { width: pageWidth, lineGap: 2 });
+                    doc.moveDown(0.15);
+                }
+            });
 
-                doc.fontSize(22).font("Helvetica-Bold").fillColor("#4A90D9")
-                   .text(String(totalVid), 80 + colWidth, statY, { width: colWidth, align: "center" });
-                doc.fontSize(9).font("Helvetica").fillColor("#666666")
-                   .text("Video/Audio", 80 + colWidth, statY + 25, { width: colWidth, align: "center" });
-
-                doc.fontSize(22).font("Helvetica-Bold").fillColor("#D4A029")
-                   .text(String(totalDoc), 80 + colWidth * 2, statY, { width: colWidth, align: "center" });
-                doc.fontSize(9).font("Helvetica").fillColor("#666666")
-                   .text("Dokumen", 80 + colWidth * 2, statY + 25, { width: colWidth, align: "center" });
-
-                doc.y = boxY + boxHeight + 20;
-            }
-
-            // === HALAMAN 2: RANGKUMAN ===
-            doc.addPage();
-
-            doc.fontSize(14).font("Helvetica-Bold").fillColor("#1a1a1a")
-               .text("RANGKUMAN", 50, 50);
-            doc.moveDown(0.3);
-            doc.strokeColor("#25D366").lineWidth(2)
-               .moveTo(50, doc.y).lineTo(150, doc.y).stroke();
-            doc.moveDown(1);
-
-            // Render sections
-            if (sections.length > 0) {
-                sections.forEach(function(section) {
-                    // Cek perlu halaman baru
-                    if (doc.y > doc.page.height - 100) doc.addPage();
-
-                    if (section.title) {
-                        doc.fontSize(11).font("Helvetica-Bold").fillColor("#1a1a1a")
-                           .text(section.title, { width: pageWidth });
-                        doc.moveDown(0.4);
-                    }
-
-                    section.lines.forEach(function(line) {
-                        if (doc.y > doc.page.height - 60) doc.addPage();
-                        doc.fontSize(10).font("Helvetica").fillColor("#333333")
-                           .text(line, { width: pageWidth, lineGap: 3 });
-                        doc.moveDown(0.2);
-                    });
-                    doc.moveDown(0.8);
-                });
-            } else {
-                // Fallback: render as plain paragraphs
-                cleanAnswer.split(NL).forEach(function(line) {
-                    if (doc.y > doc.page.height - 60) doc.addPage();
-                    if (line.trim()) {
-                        doc.fontSize(10).font("Helvetica").fillColor("#333333")
-                           .text(line.trim(), { width: pageWidth, lineGap: 3 });
-                        doc.moveDown(0.3);
-                    } else {
-                        doc.moveDown(0.6);
-                    }
-                });
-            }
-
-            // === HALAMAN FOTO ===
+            // === DOKUMENTASI FOTO ===
             if (photos.length > 0) {
                 doc.addPage();
 
-                doc.fontSize(14).font("Helvetica-Bold").fillColor("#1a1a1a")
+                doc.fontSize(13).font("Helvetica-Bold").fillColor("#1a1a1a")
                    .text("DOKUMENTASI FOTO", 50, 50);
-                doc.moveDown(0.3);
-                doc.strokeColor("#25D366").lineWidth(2)
-                   .moveTo(50, doc.y).lineTo(150, doc.y).stroke();
+                doc.moveDown(0.2);
+                doc.strokeColor("#25D366").lineWidth(1.5)
+                   .moveTo(50, doc.y).lineTo(130, doc.y).stroke();
                 doc.moveDown(0.3);
                 doc.fontSize(9).font("Helvetica").fillColor("#666666")
                    .text(photos.length + " foto  |  " + (detectedGrup || "grup") + "  |  " + targetDate + " s/d " + endDate);
                 doc.moveDown(1);
 
-                // Layout foto: 2 kolom, ukuran konsisten
                 var imgWidth = 230;
                 var imgHeight = 170;
                 var imgGap = 20;
@@ -1675,26 +1598,22 @@ async function generateAnswerPDF(outputPath, question, answer) {
                 var imgY = doc.y;
                 var col = 0;
 
-                photos.forEach(function(photo, idx) {
+                photos.forEach(function(photo) {
                     try {
                         if (!fs.existsSync(photo.path)) return;
 
-                        // Cek perlu halaman baru
-                        if (imgY + imgHeight + 20 > doc.page.height - 50) {
+                        if (imgY + imgHeight + 25 > doc.page.height - 40) {
                             doc.addPage();
                             imgY = 50;
                             imgX = startX;
                             col = 0;
                         }
 
-                        // Border kotak foto
-                        doc.roundedRect(imgX - 3, imgY - 3, imgWidth + 6, imgHeight + 6, 4)
+                        doc.roundedRect(imgX - 3, imgY - 3, imgWidth + 6, imgHeight + 6, 3)
                            .stroke("#e0e0e0");
 
-                        // Foto
                         doc.image(photo.path, imgX, imgY, { fit: [imgWidth, imgHeight], align: "center", valign: "center" });
 
-                        // Label tanggal
                         doc.fontSize(7).font("Helvetica").fillColor("#999999")
                            .text(photo.date, imgX, imgY + imgHeight + 8, { width: imgWidth, align: "center" });
 
@@ -1702,7 +1621,7 @@ async function generateAnswerPDF(outputPath, question, answer) {
                         if (col >= 2) {
                             col = 0;
                             imgX = startX;
-                            imgY += imgHeight + 35;
+                            imgY += imgHeight + 32;
                         } else {
                             imgX += imgWidth + imgGap;
                         }
@@ -1710,19 +1629,12 @@ async function generateAnswerPDF(outputPath, question, answer) {
                 });
             }
 
-            // === FOOTER setiap halaman ===
+            // === FOOTER: hanya nomor halaman ===
             var pageCount = doc.bufferedPageRange().count;
             for (var i = 0; i < pageCount; i++) {
                 doc.switchToPage(i);
-
-                // Garis footer
-                doc.strokeColor("#e0e0e0").lineWidth(0.5)
-                   .moveTo(50, doc.page.height - 40).lineTo(doc.page.width - 50, doc.page.height - 40).stroke();
-
-                doc.fontSize(8).font("Helvetica").fillColor("#999999")
-                   .text("WA Media Bot", 50, doc.page.height - 30);
-                doc.fontSize(8).font("Helvetica").fillColor("#999999")
-                   .text("Hal " + (i + 1) + " / " + pageCount, doc.page.width - 100, doc.page.height - 30, { width: 50, align: "right" });
+                doc.fontSize(8).font("Helvetica").fillColor("#cccccc")
+                   .text(String(i + 1), 0, doc.page.height - 30, { align: "center" });
             }
 
             doc.end();
@@ -2010,6 +1922,7 @@ async function askAIAssistant(question) {
     var prompt = "Kamu adalah AI Assistant untuk WA Media Bot. Kamu punya akses ke semua data media dan chat dari grup-grup WhatsApp." + NL;
     prompt += "Jawab pertanyaan user dengan bahasa Indonesia yang natural dan friendly." + NL;
     prompt += "Kalau ditanya sesuatu yang tidak ada datanya, bilang saja tidak tersedia." + NL;
+    prompt += "PENTING: Langsung jawab isinya. JANGAN awali dengan kalimat basa-basi seperti 'Tentu, ini rangkuman...', 'Baik, berikut...', 'Ini adalah...'. Langsung ke inti jawaban." + NL;
     prompt += "Jawab dengan format yang RAPIH dan mudah dibaca di Telegram:" + NL;
     prompt += "- Gunakan *bold* untuk judul/poin penting" + NL;
     prompt += "- Gunakan bullet point (• atau -) untuk list" + NL;
