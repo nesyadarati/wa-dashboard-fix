@@ -1951,19 +1951,23 @@ async function askAIAssistant(question) {
     var stats = loadStats();
 
     // Prompt
-    var prompt = "Kamu membantu membuat laporan dari chat WhatsApp grup." + NL;
-    prompt += "Tulis dengan bahasa Indonesia yang natural seperti orang biasa menulis email laporan ke atasan." + NL;
-    prompt += "JANGAN awali dengan 'Tentu', 'Baik', 'Berikut'. Langsung ke isi." + NL;
-    prompt += "JANGAN pakai format markdown. Tulis plain text." + NL;
-    prompt += "JANGAN sebutkan jam/pukul per pesan. Rangkum per topik/aktivitas." + NL;
-    prompt += "Tulis DETAIL dan LENGKAP — minimal 3-5 paragraf. Jelaskan:" + NL;
-    prompt += "- Aktivitas apa saja yang dilakukan hari itu" + NL;
-    prompt += "- Siapa saja yang terlibat dan perannya" + NL;
-    prompt += "- Area/lokasi pekerjaan yang dibahas" + NL;
-    prompt += "- Keputusan atau target yang disepakati" + NL;
-    prompt += "- Kendala/masalah jika ada" + NL;
-    prompt += "- Progress keseluruhan" + NL;
-    prompt += "Akhiri dengan kesimpulan 1-2 kalimat." + NL + NL;
+    var prompt = "Kamu membantu membuat rangkuman/laporan dari chat WhatsApp grup." + NL;
+    prompt += "Tulis dengan bahasa Indonesia yang natural dan mudah dibaca." + NL;
+    prompt += "JANGAN pakai format markdown (tanpa **, ##, atau tanda bintang). Tulis plain text." + NL;
+    prompt += "JANGAN sebutkan jam/pukul per pesan. Rangkum per topik/aktivitas." + NL + NL;
+    prompt += "Gunakan struktur berikut PERSIS seperti ini:" + NL + NL;
+    prompt += "Topik: <judul singkat rangkuman>" + NL + NL;
+    prompt += "Detail:" + NL;
+    prompt += "  <Nama Kategori 1>:" + NL;
+    prompt += "    - <poin detail>" + NL;
+    prompt += "    - <poin detail>" + NL;
+    prompt += "  <Nama Kategori 2>:" + NL;
+    prompt += "    - <poin detail>" + NL;
+    prompt += "  Lain-lain:" + NL;
+    prompt += "    - <poin detail lainnya>" + NL + NL;
+    prompt += "Kesimpulan:" + NL;
+    prompt += "<rangkuman singkat 2-3 kalimat tentang progress keseluruhan, keputusan/target, dan kendala jika ada>" + NL + NL;
+    prompt += "Kelompokkan poin-poin ke dalam kategori yang relevan berdasarkan isi chat (misal: Pekerjaan/Progress, Material, Keputusan, Lain-lain). Buat DETAIL dan LENGKAP, jangan ada info penting yang terlewat." + NL + NL;
     prompt += "STATUS BOT: " + (botStatus.connected ? "Online" : "Offline") + NL;
     prompt += "TOTAL SAVED: " + stats.saved + " | TOTAL FAILED: " + stats.failed + NL + NL;
     prompt += "=== DATA KONTEKS ===" + NL;
