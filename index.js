@@ -622,12 +622,14 @@ async function start() {
             const buffer = await downloadMediaMessage(msg, "buffer", {}, {});
             if (!buffer) throw new Error("Gagal mengunduh media dari server WA.");
 
-            // Build filename
+            // Build filename - include a unique token from the message id so that
+            // multiple media sent in the same second (e.g. an album) don't overwrite each other
+            const uniqueId = String(msg.key.id || "").replace(/[^a-zA-Z0-9]/g, "").slice(-6) || Math.random().toString(36).slice(2, 8);
             let fileName;
             if (type === "documents" && msg.message.documentMessage?.fileName) {
-                fileName = msgTime.format("YYYYMMDD_HHmmss") + "_" + senderNumber + "_" + sanitize(msg.message.documentMessage.fileName);
+                fileName = msgTime.format("YYYYMMDD_HHmmss") + "_" + senderNumber + "_" + uniqueId + "_" + sanitize(msg.message.documentMessage.fileName);
             } else {
-                fileName = msgTime.format("YYYYMMDD_HHmmss") + "_" + senderNumber + "." + ext;
+                fileName = msgTime.format("YYYYMMDD_HHmmss") + "_" + senderNumber + "_" + uniqueId + "." + ext;
             }
 
             const filePath = path.join(saveDir, fileName);
