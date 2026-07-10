@@ -1153,10 +1153,10 @@ document.addEventListener("click", function(e) {
     var name = galleryItem.getAttribute("data-name");
     if (src) {
       if (type === "image" || type === "video" || type === "audio") {
-     openLightbox(src, type, name);
-      } else {
+      openLightbox(src, type, name);
+ } else {
         window.open(src, "_blank");
-      }
+ }
     }
     return;
   }
