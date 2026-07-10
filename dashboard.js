@@ -350,6 +350,33 @@ app.post("/api/redownload", (req, res) => {
   }
 });
 
+// API untuk hapus single entry dari failed-media.json
+app.post("/api/delete-failed", (req, res) => {
+  const { messageId } = req.body;
+  if(!messageId) return res.status(400).json({ error: "Message ID wajib diisi" });
+
+  try {
+    if (fs.existsSync(FAILED_FILE)) {
+      let failedList = JSON.parse(fs.readFileSync(FAILED_FILE, "utf8"));
+      failedList = failedList.filter(f => f.messageId !== messageId);
+      fs.writeFileSync(FAILED_FILE, JSON.stringify(failedList, null, 2), "utf8");
+    }
+    return res.json({ success: true, message: "Entry berhasil dihapus dari log gagal." });
+  } catch(err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// API untuk hapus semua entry dari failed-media.json
+app.post("/api/delete-all-failed", (req, res) => {
+  try {
+    fs.writeFileSync(FAILED_FILE, JSON.stringify([], null, 2), "utf8");
+    return res.json({ success: true, message: "Semua log gagal berhasil dihapus." });
+  } catch(err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // API Blacklist/Whitelist Grup
 app.get("/api/ignored-groups", (req, res) => {
   try {
@@ -429,20 +456,6 @@ app.get("/api/download-zip", async (req, res) => {
   
   const folderName = `${group}_${formatDateForFolder(startDate)}-${formatDateForFolder(endDate)}`;
   
-  // Set headers untuk ZIP download
-  res.setHeader('Content-Type', 'application/zip');
-  res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(folderName)}.zip"`);
-  
-  // Create ZIP archive
-  const archive = archiver('zip', { zlib: { level: 9 } });
-  
-  archive.on('error', (err) => {
-    console.error('ZIP Archive Error:', err);
-    res.status(500).json({ error: "Gagal membuat ZIP file" });
-  });
-  
-  archive.pipe(res);
-  
   // Collect files dalam rentang tanggal
   const files = [];
   async function collectFiles(dir) {
@@ -469,13 +482,39 @@ app.get("/api/download-zip", async (req, res) => {
   await collectFiles(groupDir);
   
   if (files.length === 0) {
-    res.status(404).json({ error: "Tidak ada media dalam rentang tanggal yang dipilih" });
-    return;
+    return res.status(404).json({ error: "Tidak ada media dalam rentang tanggal yang dipilih" });
   }
   
-  // Add files ke ZIP
+  // Set headers untuk ZIP download (setelah validasi file ada)
+  res.setHeader('Content-Type', 'application/zip');
+  res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(folderName)}.zip"`);
+  
+  // Create ZIP archive
+  const archive = archiver('zip', { zlib: { level: 9 } });
+  
+  archive.on('error', (err) => {
+    console.error('ZIP Archive Error:', err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: "Gagal membuat ZIP file" });
+    }
+  });
+  
+  archive.pipe(res);
+  
+  // Add files ke ZIP dengan unique name untuk menghindari overwrite
+  const nameCount = {};
   for (const file of files) {
-    archive.file(file.path, { name: path.basename(file.name) });
+    let fileName = file.name;
+    // Jika ada duplikat nama file, tambahkan counter
+    if (nameCount[fileName]) {
+      nameCount[fileName]++;
+      const ext = path.extname(fileName);
+      const base = path.basename(fileName, ext);
+      fileName = `${base}_${nameCount[fileName]}${ext}`;
+    } else {
+      nameCount[fileName] = 1;
+    }
+    archive.file(file.path, { name: fileName });
   }
   
   await archive.finalize();
@@ -544,7 +583,15 @@ app.get("/", async (req, res) => {
     });
   }
 
-  if (search) { const allMedia = await getAllMedia(); gallery = allMedia.filter((f) => f.name.toLowerCase().includes(search)); }
+  if (search) {
+    if (selectedGroup) {
+      // Jika ada grup terpilih, filter hanya di grup tersebut
+      gallery = gallery.filter((f) => f.name.toLowerCase().includes(search));
+    } else {
+      const allMedia = await getAllMedia();
+      gallery = allMedia.filter((f) => f.name.toLowerCase().includes(search));
+    }
+  }
 
   // Sort gallery based on sort parameter
   const sortBy = req.query.sort || "newest";
@@ -905,8 +952,8 @@ body.light-theme { --bg-primary: #ffffff; --bg-secondary: #f6f8fa; --bg-tertiary
           </thead>
           <tbody>
             ${failedList.map(f => {
-              const resDownloadBtn = f.messageId ? `<button class="btn btn-ghost btn-sm btn-redownload" style="color:var(--accent-blue); border-color:var(--accent-blue); padding:4px 8px; font-size:0.75rem;" data-msgid="${f.messageId}">Unduh Ulang</button>` : '<span style="color:var(--text-muted); font-size:0.7rem;">No MsgID</span>';
-              return `<tr><td>${f.time}</td><td><strong>${f.group}</strong></td><td>${f.sender}</td><td><span class="badge-type badge-doc" style="background:rgba(248,81,73,0.1); color:var(--accent-red); border:1px solid rgba(248,81,73,0.2)">${f.type}</span></td><td style="max-width:250px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${(f.error || '').replace(/"/g, '&quot;')}"><code>${f.error || ''}</code></td><td style="text-align:center;">${resDownloadBtn}</td></tr>`;
+              const resDownloadBtn = f.messageId ? `<button class="btn btn-ghost btn-sm btn-redownload" style="color:var(--accent-blue); border-color:var(--accent-blue); padding:4px 8px; font-size:0.75rem; margin-right:4px;" data-msgid="${f.messageId}">Unduh Ulang</button><button class="btn btn-ghost btn-sm btn-delete-failed" style="color:var(--accent-red); border-color:var(--accent-red); padding:4px 8px; font-size:0.75rem;" data-msgid="${f.messageId}">🗑 Hapus</button>` : '<span style="color:var(--text-muted); font-size:0.7rem;">No MsgID</span>';
+              return `<tr><td>${f.time}</td><td><strong>${f.group}</strong></td><td>${f.sender}</td><td><span class="badge-type badge-doc" style="background:rgba(248,81,73,0.1); color:var(--accent-red); border:1px solid rgba(248,81,73,0.2)">${f.type}</span></td><td style="max-width:250px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${(f.error || '').replace(/"/g, '"')}"><code>${f.error || ''}</code></td><td style="text-align:center;">${resDownloadBtn}</td></tr>`;
             }).join('')}
           </tbody>
         </table>
@@ -1225,7 +1272,7 @@ async function loadMoreMedia() {
       const galleryDiv = document.querySelector(".gallery");
       result.data.forEach(item => {
         let html = '';
-        const hoverCardHTML = '<div class="hover-sender-container"><a class="chip-sender" href="/?group=' + encodeURIComponent(selectedGroup || '') + '&search=' + encodeURIComponent(item.number || '') + '">👤 ' + item.sender + '</a><div class="sender-hover-card"><div class="hover-card-avatar">👤</div><div class="hover-card-name">' + item.sender + '</div><div class="hover-card-num">@' + item.number + '</div><div class="hover-card-count">📦 Shared: ' + item.totalMediaContributed + ' File</div></div></div>';
+        const hoverCardHTML = '<div class="hover-sender-container"><a class="chip-sender" href="/?group=' + encodeURIComponent(group) + '&search=' + encodeURIComponent(item.number || '') + '">👤 ' + item.sender + '</a><div class="sender-hover-card"><div class="hover-card-avatar">👤</div><div class="hover-card-name">' + item.sender + '</div><div class="hover-card-num">@' + item.number + '</div><div class="hover-card-count">📦 Shared: ' + item.totalMediaContributed + ' File</div></div></div>';
 
         if (item.isPlayable) {
           html = '<div class="gallery-item" data-src="' + item.src + '" data-type="' + item.type + '" data-name="' + item.name + '" style="cursor:pointer;"><div class="media-preview">' + (item.type === 'image' ? '<img src="' + item.src + '" loading="lazy">' : '<span class="icon-placeholder">' + (item.type === 'video' ? '🎥' : '🎵') + '</span>') + '</div><div class="card-info"><div class="card-filename" title="' + item.name + '">' + item.name + '</div><div class="card-row-details"><span class="badge-type badge-' + item.type + '">' + item.type + '</span><span>' + hoverCardHTML + '</span></div><div class="card-row-details" style="margin-top:2px; color:var(--text-muted);"><span>💾 ' + item.size + '</span><span>🕒 ' + item.time + '</span></div><div style="margin-top:6px;"><button class="btn-download-single" data-src="' + item.src + '" style="width:100%; padding:4px 8px; background:var(--bg-tertiary); border:1px solid var(--border); border-radius:4px; color:var(--accent-blue); font-size:0.7rem; cursor:pointer; transition:all 0.2s;" onmouseover="this.style.background=\'var(--accent-blue)\'; this.style.color=\'#fff\';" onmouseout="this.style.background=\'var(--bg-tertiary)\'; this.style.color=\'var(--accent-blue)\';">💾 Download</button></div></div></div>';
