@@ -901,13 +901,13 @@ body.light-theme { --bg-primary: #ffffff; --bg-secondary: #f6f8fa; --bg-tertiary
           <span>Mulai:</span><input type="date" id="chatStart" class="btn btn-ghost btn-sm" style="padding:4px 8px;">
           <span>Selesai:</span><input type="date" id="chatEnd" class="btn btn-ghost btn-sm" style="padding:4px 8px;">
         </div>
-        <div style="display: flex; gap: 8px;">
-          <button onclick="triggerChatExport()" class="btn btn-ghost btn-sm" style="border-color: var(--accent-orange); color: var(--accent-orange); font-size: 0.82rem;">
-            📝 Ekspor Chat (.txt)
-          </button>
-          <button onclick="triggerZipDownload()" class="btn btn-ghost btn-sm" style="border-color: var(--accent-blue); color: var(--accent-blue); font-size: 0.82rem;">
-            📦 Download ZIP
-          </button>
+      <div style="display: flex; gap: 8px;">
+        <button id="btnChatExport" class="btn btn-ghost btn-sm" style="border-color: var(--accent-orange); color: var(--accent-orange); font-size: 0.82rem;">
+          📝 Ekspor Chat (.txt)
+   </button>
+    <button id="btnZipDownload" class="btn btn-ghost btn-sm" style="border-color: var(--accent-blue); color: var(--accent-blue); font-size: 0.82rem;">
+   📦 Download ZIP
+       </button>
         </div>
       </div>
       ` : ''}
@@ -932,8 +932,8 @@ body.light-theme { --bg-primary: #ffffff; --bg-secondary: #f6f8fa; --bg-tertiary
 
     ${hasMore ? `
     <div style="text-align: center; margin-top: 24px;" id="loadMoreContainer">
-      <button id="btnLoadMore" class="btn btn-ghost" onclick="loadMoreMedia()">🔽 <span id="btnText">Muat Lebih Banyak</span></button>
-    </div>` : ''}
+  <button id="btnLoadMore" class="btn btn-ghost">🔽 <span id="btnText">Muat Lebih Banyak</span></button>
+  </div>` : ''}
 
     <div class="failed-log-section">
       <div class="card-title" style="color:var(--accent-red)">⚠️ Log Media Gagal & Unduh Ulang Manual</div>
@@ -1153,7 +1153,7 @@ document.addEventListener("click", function(e) {
     var name = galleryItem.getAttribute("data-name");
     if (src) {
       if (type === "image" || type === "video" || type === "audio") {
-        openLightbox(src, type, name);
+     openLightbox(src, type, name);
       } else {
         window.open(src, "_blank");
       }
@@ -1189,6 +1189,30 @@ document.addEventListener("click", function(e) {
     e.stopPropagation();
     var fileSrc = downloadBtn.getAttribute("data-src");
     if (fileSrc) downloadSingleMedia(fileSrc);
+    return;
+  }
+
+  // Chat export button
+  var chatExportBtn = e.target.closest("#btnChatExport");
+  if (chatExportBtn) {
+    e.preventDefault();
+    triggerChatExport();
+    return;
+  }
+
+  // ZIP download button
+  var zipBtn = e.target.closest("#btnZipDownload");
+  if (zipBtn) {
+    e.preventDefault();
+    triggerZipDownload();
+    return;
+  }
+
+  // Load more button
+  var loadMoreBtn = e.target.closest("#btnLoadMore");
+  if (loadMoreBtn) {
+    e.preventDefault();
+    loadMoreMedia();
     return;
   }
 });
