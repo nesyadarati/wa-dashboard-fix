@@ -781,20 +781,20 @@ body.light-theme { --bg-primary: #ffffff; --bg-secondary: #f6f8fa; --bg-tertiary
 </header>
 
 <div id="toastContainer" class="toast-container"></div>
-<button id="btnTop" class="btn-top" onclick="scrollToTop()">⬆️</button>
-<button class="theme-toggle" onclick="toggleTheme()" title="Toggle Dark/Light">🌓</button>
+<button id="btnTop" class="btn-top">⬆️</button>
+<button class="theme-toggle" title="Toggle Dark/Light">🌓</button>
 
-<div id="lightbox" class="lightbox" onclick="closeLightbox()">
-  <button class="lightbox-close" onclick="closeLightbox()">✕</button>
-  <div class="lightbox-content" onclick="event.stopPropagation()">
+<div id="lightbox" class="lightbox">
+  <button class="lightbox-close">✕</button>
+  <div class="lightbox-content">
     <img id="lightboxImg" style="display: none;">
     <video id="lightboxVideo" controls style="display: none;"></video>
     <audio id="lightboxAudio" style="display: none;" controls></audio>
   </div>
   <div class="lightbox-info" id="lightboxInfo"></div>
   <div class="lightbox-nav">
-    <button onclick="event.stopPropagation(); prevImage()">⬅️</button>
-    <button onclick="event.stopPropagation(); nextImage()">➡️</button>
+    <button class="btn-lightbox-prev">⬅️</button>
+    <button class="btn-lightbox-next">➡️</button>
   </div>
 </div>
 
@@ -1213,6 +1213,55 @@ document.addEventListener("click", function(e) {
   if (loadMoreBtn) {
     e.preventDefault();
     loadMoreMedia();
+    return;
+  }
+
+  // Scroll to top button
+  var btnTop = e.target.closest("#btnTop");
+  if (btnTop) {
+    e.preventDefault();
+    scrollToTop();
+    return;
+  }
+
+  // Theme toggle button
+  var themeToggle = e.target.closest(".theme-toggle");
+  if (themeToggle) {
+    e.preventDefault();
+    toggleTheme();
+    return;
+  }
+
+  // Lightbox close button
+  var lightboxClose = e.target.closest(".lightbox-close");
+  if (lightboxClose) {
+    e.preventDefault();
+  closeLightbox();
+    return;
+  }
+
+  // Lightbox background click
+  var lightboxBg = e.target.closest(".lightbox");
+  if (lightboxBg && e.target === lightboxBg) {
+    closeLightbox();
+  return;
+  }
+
+  // Lightbox prev button
+  var prevBtn = e.target.closest(".btn-lightbox-prev");
+  if (prevBtn) {
+    e.preventDefault();
+    e.stopPropagation();
+    prevImage();
+    return;
+  }
+
+  // Lightbox next button
+  var nextBtn = e.target.closest(".btn-lightbox-next");
+  if (nextBtn) {
+    e.preventDefault();
+    e.stopPropagation();
+    nextImage();
     return;
   }
 });
