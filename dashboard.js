@@ -818,8 +818,8 @@ body.light-theme { --bg-primary: #ffffff; --bg-secondary: #f6f8fa; --bg-tertiary
     <div class="card">
       <div class="card-title">📅 Kalender Filter Media</div>
       <div style="display: flex; flex-direction: column; gap: 8px;">
-        <input type="date" id="calendarFilter" class="btn btn-ghost" style="width: 100%; text-align: center; color: var(--text-primary);" value="${targetDate || ''}" onchange="filterByDate(this.value)">
-        ${targetDate ? `<button class="btn btn-danger btn-sm" onclick="filterByDate('')" style="justify-content: center;">❌ Reset Tanggal</button>` : ''}
+        <input type="date" id="calendarFilter" class="btn btn-ghost" style="width: 100%; text-align: center; color: var(--text-primary);" value="${targetDate || ''}">
+        ${targetDate ? `<button class="btn btn-danger btn-sm" data-action="reset-date" style="justify-content: center;">❌ Reset Tanggal</button>` : ''}
       </div>
     </div>
 
@@ -839,7 +839,7 @@ body.light-theme { --bg-primary: #ffffff; --bg-secondary: #f6f8fa; --bg-tertiary
           const maxCount = Math.max(...Object.values(activity7Days), 1);
           return Object.entries(activity7Days).map(([day, count]) => {
             const date = new Date(day); const label = date.toLocaleDateString('id-ID', { weekday: 'short' });
-            return `<div class="activity-bar-wrapper" style="cursor:pointer;" onclick="filterByDate('${day}')"><div class="activity-count">${count}</div><div class="activity-bar" style="height:${Math.max((count / maxCount) * 100, 4)}%"></div><div class="activity-label">${label}</div></div>`;
+            return `<div class="activity-bar-wrapper" style="cursor:pointer;" data-action="filter-date" data-date="${day}"><div class="activity-count">${count}</div><div class="activity-bar" style="height:${Math.max((count / maxCount) * 100, 4)}%"></div><div class="activity-label">${label}</div></div>`;
           }).join('');
         })()}
       </div>
@@ -1007,7 +1007,7 @@ function showNotificationToast(media) {
   
   const toast = document.createElement("div");
   toast.className = "toast-item";
-  toast.innerHTML = '<div class="toast-header"><span>📥 File Masuk Baru</span><span style="cursor:pointer; color:var(--text-muted);" onclick="this.parentElement.parentElement.remove()">✕</span></div><div class="toast-body"><strong>Grup:</strong> ' + (media.group || 'Unknown') + '<br><strong>Dari:</strong> ' + (media.sender || 'Unknown') + '<br>📁 ' + (media.file || 'Media File') + '</div>';
+  toast.innerHTML = '<div class="toast-header"><span>📥 File Masuk Baru</span><span class="toast-close-btn" style="cursor:pointer; color:var(--text-muted);">✕</span></div><div class="toast-body"><strong>Grup:</strong> ' + (media.group || 'Unknown') + '<br><strong>Dari:</strong> ' + (media.sender || 'Unknown') + '<br>📁 ' + (media.file || 'Media File') + '</div>';
   container.appendChild(toast);
   setTimeout(function() { if(toast) toast.remove(); }, 6000);
 }
@@ -1262,6 +1262,29 @@ document.addEventListener("click", function(e) {
     e.preventDefault();
     e.stopPropagation();
     nextImage();
+    return;
+  }
+
+  // Calendar filter change
+  var calendarFilter = e.target.closest("#calendarFilter");
+  if (calendarFilter && e.type === "change") {
+    filterByDate(calendarFilter.value);
+    return;
+  }
+
+  // Reset date button
+  var resetDateBtn = e.target.closest("[data-action='reset-date']");
+  if (resetDateBtn) {
+    e.preventDefault();
+    filterByDate('');
+    return;
+  }
+
+  // Activity bar filter by date
+  var activityBar = e.target.closest("[data-action='filter-date']");
+  if (activityBar) {
+    var date = activityBar.getAttribute("data-date");
+    if (date) filterByDate(date);
     return;
   }
 });
