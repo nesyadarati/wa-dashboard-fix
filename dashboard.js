@@ -418,7 +418,7 @@ app.get("/api/download-media", async (req, res) => {
   const fullPath = path.join(MEDIA_DIR, decodedPath);
   
   // Validasi path untuk mencegah directory traversal
-  if (!fullPath.startsWith(MEDIA_DIR)) {
+  if (!fullPath.startsWith(path.normalize(MEDIA_DIR) + path.sep) && fullPath !== path.normalize(MEDIA_DIR)) {
     return res.status(403).json({ error: "Akses ditolak: path tidak valid" });
   }
   
@@ -902,12 +902,8 @@ body.light-theme { --bg-primary: #ffffff; --bg-secondary: #f6f8fa; --bg-tertiary
           <span>Selesai:</span><input type="date" id="chatEnd" class="btn btn-ghost btn-sm" style="padding:4px 8px;">
         </div>
       <div style="display: flex; gap: 8px;">
-        <button id="btnChatExport" class="btn btn-ghost btn-sm" style="border-color: var(--accent-orange); color: var(--accent-orange); font-size: 0.82rem;">
-          📝 Ekspor Chat (.txt)
-   </button>
-    <button id="btnZipDownload" class="btn btn-ghost btn-sm" style="border-color: var(--accent-blue); color: var(--accent-blue); font-size: 0.82rem;">
-   📦 Download ZIP
-       </button>
+        <button id="btnChatExport" class="btn btn-ghost btn-sm" style="border-color: var(--accent-orange); color: var(--accent-orange); font-size: 0.82rem;">📝 Ekspor Chat (.txt)</button>
+        <button id="btnZipDownload" class="btn btn-ghost btn-sm" style="border-color: var(--accent-blue); color: var(--accent-blue); font-size: 0.82rem;">📦 Download ZIP</button>
         </div>
       </div>
       ` : ''}
@@ -967,6 +963,7 @@ body.light-theme { --bg-primary: #ffffff; --bg-secondary: #f6f8fa; --bg-tertiary
 let images = []; 
 let currentIndex = 0; 
 let currentPage = 2;
+const selectedGroupName = ${JSON.stringify(selectedGroup || '')};
 
 const eventSource = new EventSource("/api/events");
 eventSource.onmessage = function(event) {
@@ -1008,8 +1005,10 @@ function showNotificationToast(media) {
   const toast = document.createElement("div");
   toast.className = "toast-item";
   toast.innerHTML = '<div class="toast-header"><span>📥 File Masuk Baru</span><span class="toast-close-btn" style="cursor:pointer; color:var(--text-muted);">✕</span></div><div class="toast-body"><strong>Grup:</strong> ' + (media.group || 'Unknown') + '<br><strong>Dari:</strong> ' + (media.sender || 'Unknown') + '<br>📁 ' + (media.file || 'Media File') + '</div>';
+  var closeBtn = toast.querySelector('.toast-close-btn');
+  if (closeBtn) closeBtn.addEventListener('click', function() { toast.remove(); });
   container.appendChild(toast);
-  setTimeout(function() { if(toast) toast.remove(); }, 6000);
+  setTimeout(function() { if(toast.parentNode) toast.remove(); }, 6000);
 }
 
 async function togglePinGroup(groupName, pinStatus) {
@@ -1059,36 +1058,37 @@ function filterByDate(val) {
 }
 
 function triggerChatExport() {
-  const start = document.getElementById("chatStart").value;
-  const end = document.getElementById("chatEnd").value;
-  const currentGroup = document.querySelector("input[name=group]").value;
-  let targetUrl = "/api/export-chat?group=" + encodeURIComponent(currentGroup);
-  if(start) targetUrl += "&start_date=" + start;
-  if(end) targetUrl += "&end_date=" + end;
-  window.location.href = targetUrl;
+  const startEl = document.getElementById("chatStart");
+  const endEl = document.getElementById("chatEnd");
+  const currentGroup = selectedGroupName || (document.querySelector("input[name=group]") || {}).value || "";
+  if (!currentGroup) { alert("⚠️ Grup belum dipilih."); return; }
+  const params = new URLSearchParams({ group: currentGroup });
+  if(startEl && startEl.value) params.set("start_date", startEl.value);
+  if(endEl && endEl.value) params.set("end_date", endEl.value);
+  window.location.href = "/api/export-chat?" + params.toString();
 }
 
 function triggerZipDownload() {
-  const start = document.getElementById("chatStart").value;
-  const end = document.getElementById("chatEnd").value;
-  const currentGroup = document.querySelector("input[name=group]").value;
+  const startEl = document.getElementById("chatStart");
+  const endEl = document.getElementById("chatEnd");
+  const start = startEl ? startEl.value : "";
+  const end = endEl ? endEl.value : "";
+  const currentGroup = selectedGroupName || (document.querySelector("input[name=group]") || {}).value || "";
+  if (!currentGroup) { alert("⚠️ Grup belum dipilih."); return; }
   
   if (!start || !end) {
     alert("⚠️ Silakan pilih rentang tanggal (Mulai dan Selesai) terlebih dahulu!");
     return;
   }
   
-  let targetUrl = "/api/download-zip?group=" + encodeURIComponent(currentGroup);
-  targetUrl += "&startDate=" + start;
-  targetUrl += "&endDate=" + end;
-  window.location.href = targetUrl;
+  const params = new URLSearchParams({ group: currentGroup, startDate: start, endDate: end });
+  window.location.href = "/api/download-zip?" + params.toString();
 }
 
 function downloadSingleMedia(fileSrc) {
-  // fileSrc adalah path relatif seperti /media/groupname/filename
-  // Kita perlu extract path setelah /media/
-  const mediaPath = fileSrc.replace('/media/', '');
-  const downloadUrl = "/api/download-media?file=" + encodeURIComponent(mediaPath);
+  const url = new URL(fileSrc, window.location.origin);
+  const mediaPath = decodeURIComponent(url.pathname.replace(/^\/media\//, ''));
+  const downloadUrl = "/api/download-media?" + new URLSearchParams({ file: mediaPath }).toString();
   
   // Create temporary link and trigger download
   const a = document.createElement('a');
@@ -1097,6 +1097,29 @@ function downloadSingleMedia(fileSrc) {
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
+}
+
+async function deleteFailedMedia(msgId, element) {
+  if (!confirm("Hapus log media gagal ini?")) return;
+  const oldText = element.textContent;
+  element.disabled = true;
+  element.textContent = "Menghapus...";
+  try {
+    const response = await fetch("/api/delete-failed", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messageId: msgId })
+    });
+    const res = await response.json();
+    if (!response.ok || !res.success) throw new Error(res.error || "Gagal menghapus");
+    const row = element.closest("tr");
+    if (row) row.remove();
+    alert("✅ " + (res.message || "Log berhasil dihapus."));
+  } catch (err) {
+    alert("❌ " + err.message);
+    element.textContent = oldText;
+    element.disabled = false;
+  }
 }
 
 window.onscroll = function() {
@@ -1145,9 +1168,19 @@ function openLightbox(src, type, name) {
 
 // EVENT DELEGATION - handles all clicks without inline onclick
 document.addEventListener("click", function(e) {
-  // Gallery item click -> open lightbox
+  // Download single media button click
+  var downloadBtn = e.target.closest(".btn-download-single");
+  if (downloadBtn) {
+    e.preventDefault();
+    e.stopPropagation();
+    var fileSrc = downloadBtn.getAttribute("data-src");
+    if (fileSrc) downloadSingleMedia(fileSrc);
+    return;
+  }
+
+  // Gallery item click -> open lightbox (hanya area preview, bukan card-info)
   var galleryItem = e.target.closest(".gallery-item");
-  if (galleryItem && !e.target.closest(".card-info")) {
+  if (galleryItem && !e.target.closest("button, a")) {
     var src = galleryItem.getAttribute("data-src");
     var type = galleryItem.getAttribute("data-type");
     var name = galleryItem.getAttribute("data-name");
@@ -1182,13 +1215,13 @@ document.addEventListener("click", function(e) {
     return;
   }
 
-  // Download single media button click
-  var downloadBtn = e.target.closest(".btn-download-single");
-  if (downloadBtn) {
+  // Delete failed-media log button click
+  var deleteFailedBtn = e.target.closest(".btn-delete-failed");
+  if (deleteFailedBtn) {
     e.preventDefault();
     e.stopPropagation();
-    var fileSrc = downloadBtn.getAttribute("data-src");
-    if (fileSrc) downloadSingleMedia(fileSrc);
+    var deleteMsgId = deleteFailedBtn.getAttribute("data-msgid");
+    if (deleteMsgId) deleteFailedMedia(deleteMsgId, deleteFailedBtn);
     return;
   }
 
@@ -1265,13 +1298,6 @@ document.addEventListener("click", function(e) {
     return;
   }
 
-  // Calendar filter change
-  var calendarFilter = e.target.closest("#calendarFilter");
-  if (calendarFilter && e.type === "change") {
-    filterByDate(calendarFilter.value);
-    return;
-  }
-
   // Reset date button
   var resetDateBtn = e.target.closest("[data-action='reset-date']");
   if (resetDateBtn) {
@@ -1287,6 +1313,11 @@ document.addEventListener("click", function(e) {
     if (date) filterByDate(date);
     return;
   }
+});
+
+document.addEventListener("change", function(e) {
+  var calendarFilter = e.target.closest("#calendarFilter");
+  if (calendarFilter) filterByDate(calendarFilter.value);
 });
 
 function renderCurrentMedia() {
@@ -1352,7 +1383,7 @@ async function loadMoreMedia() {
   const btn = document.getElementById("btnLoadMore"); if (!btn) return;
   const btnText = document.getElementById("btnText");
   const urlParams = new URLSearchParams(window.location.search);
-  const group = urlParams.get("group") || ""; const type = urlParams.get("type") || "all";
+  const group = urlParams.get("group") || selectedGroupName || ""; const type = urlParams.get("type") || "all";
   const date = urlParams.get("date") || "";
   
   btnText.textContent = "Memuat Data..."; 
