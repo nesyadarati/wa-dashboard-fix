@@ -880,10 +880,10 @@ body.light-theme { --bg-primary: #ffffff; --bg-secondary: #f6f8fa; --bg-tertiary
         <input type="hidden" name="date" value="${targetDate || ''}">
         <div class="search-box"><span class="search-icon">🔍</span><input type="text" name="search" placeholder="Cari..." value="${req.query.search || ''}"></div>
         <div class="filter-tabs">
-          <a href="/?group=${selectedGroup || ''}&date=${targetDate || ''}&type=all" class="filter-tab ${type === 'all' ? 'active' : ''}">Semua</a>
-          <a href="/?group=${selectedGroup || ''}&date=${targetDate || ''}&type=images" class="filter-tab ${type === 'images' ? 'active' : ''}">Gambar</a>
-          <a href="/?group=${selectedGroup || ''}&date=${targetDate || ''}&type=videos" class="filter-tab ${type === 'videos' ? 'active' : ''}">Video/Audio</a>
-          <a href="/?group=${selectedGroup || ''}&date=${targetDate || ''}&type=documents" class="filter-tab ${type === 'documents' ? 'active' : ''}">Dokumen</a>
+          <a href="/?group=${encodeURIComponent(selectedGroup || '')}&date=${targetDate || ''}&type=all" class="filter-tab ${type === 'all' ? 'active' : ''}">Semua</a>
+          <a href="/?group=${encodeURIComponent(selectedGroup || '')}&date=${targetDate || ''}&type=images" class="filter-tab ${type === 'images' ? 'active' : ''}">Gambar</a>
+          <a href="/?group=${encodeURIComponent(selectedGroup || '')}&date=${targetDate || ''}&type=videos" class="filter-tab ${type === 'videos' ? 'active' : ''}">Video/Audio</a>
+          <a href="/?group=${encodeURIComponent(selectedGroup || '')}&date=${targetDate || ''}&type=documents" class="filter-tab ${type === 'documents' ? 'active' : ''}">Dokumen</a>
         </div>
         <select name="sort" class="btn btn-ghost btn-sm" style="padding:8px 12px;">
           <option value="newest" ${req.query.sort === 'newest' || !req.query.sort ? 'selected' : ''}>Terbaru</option>
@@ -951,7 +951,9 @@ body.light-theme { --bg-primary: #ffffff; --bg-secondary: #f6f8fa; --bg-tertiary
           <tbody>
             ${failedList.map(f => {
               const resDownloadBtn = f.messageId ? `<button class="btn btn-ghost btn-sm btn-redownload" style="color:var(--accent-blue); border-color:var(--accent-blue); padding:4px 8px; font-size:0.75rem; margin-right:4px;" data-msgid="${f.messageId}">Unduh Ulang</button><button class="btn btn-ghost btn-sm btn-delete-failed" style="color:var(--accent-red); border-color:var(--accent-red); padding:4px 8px; font-size:0.75rem;" data-msgid="${f.messageId}">🗑 Hapus</button>` : '<span style="color:var(--text-muted); font-size:0.7rem;">No MsgID</span>';
-              return `<tr><td>${f.time}</td><td><strong>${f.group}</strong></td><td>${f.sender}</td><td><span class="badge-type badge-doc" style="background:rgba(248,81,73,0.1); color:var(--accent-red); border:1px solid rgba(248,81,73,0.2)">${f.type}</span></td><td style="max-width:250px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${(f.error || '').replace(/"/g, '"')}"><code>${f.error || ''}</code></td><td style="text-align:center;">${resDownloadBtn}</td></tr>`;
+              const _fq = String.fromCharCode(38) + 'quot;';
+              const safeError = (f.error || '').split('"').join(_fq);
+              return `<tr><td>${f.time}</td><td><strong>${f.group}</strong></td><td>${f.sender}</td><td><span class="badge-type badge-doc" style="background:rgba(248,81,73,0.1); color:var(--accent-red); border:1px solid rgba(248,81,73,0.2)">${f.type}</span></td><td style="max-width:250px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${safeError}"><code>${f.error || ''}</code></td><td style="text-align:center;">${resDownloadBtn}</td></tr>`;
             }).join('')}
           </tbody>
         </table>
