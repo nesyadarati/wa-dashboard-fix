@@ -1091,7 +1091,7 @@ function triggerZipDownload() {
 
 function downloadSingleMedia(fileSrc) {
   const url = new URL(fileSrc, window.location.origin);
-  const mediaPath = decodeURIComponent(url.pathname.replace(/^\/media\//, ''));
+  const mediaPath = decodeURIComponent(url.pathname.startsWith('/media/') ? url.pathname.slice(7) : url.pathname);
   const downloadUrl = "/api/download-media?" + new URLSearchParams({ file: mediaPath }).toString();
   
   // Create temporary link and trigger download
